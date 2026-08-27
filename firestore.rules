@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // In a real app we'd secure this with auth, 
+    // but for the sake of this prototype and without authentication setup yet:
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

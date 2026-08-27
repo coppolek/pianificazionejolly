@@ -85,22 +85,22 @@ export default function SchedulePage() {
       )}
 
       <div className="space-y-8 min-w-[1200px]">
-        {employees.map(emp => (
+        {employees.filter(emp => !emp.type || emp.type === 'jolly').map(emp => (
           <EmployeeScheduleBlock 
             key={emp.id} 
             employee={emp} 
             weekDays={weekDays} 
             entries={scheduleEntries.filter(e => e.employeeId === emp.id)}
             onDelete={deleteScheduleEntry}
-            onUpdate={updateEmployee}
+            onUpdate={(id, name) => updateEmployee(id, { name })}
             onDropEntry={(entryId, date, employeeId) => updateScheduleEntry(entryId, { date, employeeId })}
             onEdit={(entry) => setModalData({ ...entry, isEditing: true })}
             onAdd={(date) => setModalData({ employeeId: emp.id, date })}
           />
         ))}
-        {employees.length === 0 && (
+        {employees.filter(emp => !emp.type || emp.type === 'jolly').length === 0 && (
           <div className="text-center py-12 text-gray-500 bg-white rounded-xl border border-gray-200 shadow-sm">
-            Nessun operatore in anagrafica.
+            Nessun operatore Jolly in anagrafica.
           </div>
         )}
       </div>
@@ -361,7 +361,7 @@ function AddScheduleModal({
                 onChange={e => handleChange('employeeId', e.target.value)}
                 disabled
               >
-                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                {employees.filter(emp => !emp.type || emp.type === 'jolly').map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
               </select>
             </div>
             <div>
