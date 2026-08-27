@@ -1,0 +1,6 @@
+{
+  "name": "Gestione Operatori e Cantieri",
+  "description": "Applicazione per la gestione dei turni settimanali, richieste di ferie/permessi e anagrafica operatori e cantieri.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
