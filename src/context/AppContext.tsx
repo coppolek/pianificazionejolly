@@ -17,6 +17,7 @@ interface AppContextType {
   deleteWorkSite: (id: string) => Promise<void>;
   toggleAssignment: (employeeId: string, workSiteId: string) => Promise<void>;
   addLeaveRequest: (req: Omit<LeaveRequest, 'id'>) => Promise<void>;
+  updateLeaveRequest: (id: string, updates: Partial<LeaveRequest>) => Promise<void>;
   deleteLeaveRequest: (id: string) => Promise<void>;
   addScheduleEntry: (entry: Omit<ScheduleEntry, 'id'>) => Promise<void>;
   updateScheduleEntry: (id: string, entry: Partial<ScheduleEntry>) => Promise<void>;
@@ -89,7 +90,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addLeaveRequest = async (req: Omit<LeaveRequest, 'id'>) => {
-    await addDoc(collection(db, 'leaveRequests'), req);
+    await addDoc(collection(db, 'leaveRequests'), { ...req, status: req.status || 'pending' });
+  };
+  const updateLeaveRequest = async (id: string, updates: Partial<LeaveRequest>) => {
+    await updateDoc(doc(db, 'leaveRequests', id), updates);
   };
   const deleteLeaveRequest = async (id: string) => {
     await deleteDoc(doc(db, 'leaveRequests', id));
@@ -109,7 +113,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     <AppContext.Provider value={{
       employees, workSites, assignments, leaveRequests, scheduleEntries,
       addEmployee, updateEmployee, deleteEmployee, addWorkSite, updateWorkSite, deleteWorkSite, toggleAssignment,
-      addLeaveRequest, deleteLeaveRequest, addScheduleEntry, updateScheduleEntry, deleteScheduleEntry
+      addLeaveRequest, updateLeaveRequest, deleteLeaveRequest, addScheduleEntry, updateScheduleEntry, deleteScheduleEntry
     }}>
       {children}
     </AppContext.Provider>

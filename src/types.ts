@@ -46,6 +46,7 @@ export interface LeaveRequest {
   type: LeaveType;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  status?: 'pending' | 'approved' | 'rejected';
 }
 
 export interface ScheduleEntry {

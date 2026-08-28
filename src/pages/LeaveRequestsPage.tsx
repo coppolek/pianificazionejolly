@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { LeaveType } from '../types';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 export default function LeaveRequestsPage() {
-  const { leaveRequests, employees, addLeaveRequest, deleteLeaveRequest } = useAppContext();
+  const { leaveRequests, employees, addLeaveRequest, updateLeaveRequest, deleteLeaveRequest } = useAppContext();
   const [isAdding, setIsAdding] = useState(false);
 
   const getTypeStyle = (type: LeaveType) => {
@@ -13,6 +13,18 @@ export default function LeaveRequestsPage() {
       case 'Permesso': return 'bg-amber-100 text-amber-800 border-amber-200';
       case 'Malattia': return 'bg-rose-100 text-rose-800 border-rose-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'approved': 
+        return <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md text-xs font-medium border border-emerald-200"><CheckCircle2 size={14} /> Approvata</span>;
+      case 'rejected': 
+        return <span className="flex items-center gap-1 text-rose-600 bg-rose-50 px-2 py-1 rounded-md text-xs font-medium border border-rose-200"><XCircle size={14} /> Rifiutata</span>;
+      case 'pending':
+      default:
+        return <span className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2 py-1 rounded-md text-xs font-medium border border-amber-200"><Clock size={14} /> In attesa</span>;
     }
   };
 
@@ -44,13 +56,14 @@ export default function LeaveRequestsPage() {
               <th scope="col" className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Tipo</th>
               <th scope="col" className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Data Inizio</th>
               <th scope="col" className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Data Fine</th>
+              <th scope="col" className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Stato</th>
               <th scope="col" className="px-6 py-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Azioni</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-50">
             {leaveRequests.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                   Nessuna richiesta registrata.
                 </td>
               </tr>
@@ -73,14 +86,37 @@ export default function LeaveRequestsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
                       {new Date(req.endDate).toLocaleDateString('it-IT')}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getStatusBadge(req.status)}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => deleteLeaveRequest(req.id)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors p-2 rounded-md hover:bg-rose-50"
-                        title="Elimina richiesta"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        {(!req.status || req.status === 'pending') && (
+                          <>
+                            <button 
+                              onClick={() => updateLeaveRequest(req.id, { status: 'approved' })}
+                              className="text-emerald-600 hover:text-emerald-700 transition-colors p-1.5 rounded-md hover:bg-emerald-50"
+                              title="Approva"
+                            >
+                              <CheckCircle2 size={18} />
+                            </button>
+                            <button 
+                              onClick={() => updateLeaveRequest(req.id, { status: 'rejected' })}
+                              className="text-amber-600 hover:text-amber-700 transition-colors p-1.5 rounded-md hover:bg-amber-50"
+                              title="Rifiuta"
+                            >
+                              <XCircle size={18} />
+                            </button>
+                          </>
+                        )}
+                        <button 
+                          onClick={() => deleteLeaveRequest(req.id)}
+                          className="text-slate-400 hover:text-rose-600 transition-colors p-1.5 rounded-md hover:bg-rose-50"
+                          title="Elimina richiesta"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

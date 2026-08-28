@@ -5,6 +5,7 @@ import { WorkSite, Employee, WeeklyPlan } from '../types';
 
 function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, onClose: () => void, ws: WorkSite, onUpdate: (id: string, updates: Partial<WorkSite>) => void }) {
   const { employees } = useAppContext();
+  const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
   
   if (!isOpen) return null;
 
@@ -51,9 +52,24 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
       <div className="bg-white rounded-xl shadow-lg w-full max-w-4xl max-h-[90vh] flex flex-col">
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
           <h3 className="font-semibold text-slate-800">Piano Settimanale: {ws.name}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => {
+                const mondayPlan = plan.monday || {};
+                const newPlan = { ...plan };
+                (Object.keys(daysMap) as Array<keyof WeeklyPlan>).forEach(d => {
+                  newPlan[d] = { ...mondayPlan };
+                });
+                setPlan(newPlan);
+              }}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-100 transition-colors"
+            >
+              Copia Lunedì su tutta la settimana
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+              <X size={20} />
+            </button>
+          </div>
         </div>
         <div className="p-6 overflow-y-auto space-y-6">
           {(Object.keys(daysMap) as Array<keyof WeeklyPlan>).map(day => (
@@ -86,20 +102,54 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
                 
                 <div>
                   <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">N. Operatori</label>
-                  <input 
-                    type="number"
-                    min="0"
-                    placeholder="Es. 2"
-                    value={plan[day]?.operatorsCount || ''}
-                    onChange={e => updateDailyPlan(day, 'operatorsCount', e.target.value)}
-                    className="w-full border border-slate-200 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                  />
+                  <div className="flex gap-2">
+                    <input 
+                      type="number"
+                      min="0"
+                      placeholder="Es. 2"
+                      value={plan[day]?.operatorsCount || ''}
+                      onChange={e => updateDailyPlan(day, 'operatorsCount', e.target.value)}
+                      className="w-full border border-slate-200 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
                 
                 <div className="md:col-span-3 lg:col-span-1">
-                  <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Operatori Assegnati</label>
+                  <div className="flex justify-between items-end mb-1">
+                    <label className="block text-[10px] text-slate-500 uppercase font-semibold">Operatori Assegnati</label>
+                    {day !== 'monday' && (
+                      <button 
+                        onClick={() => {
+                          const days = Object.keys(daysMap) as Array<keyof WeeklyPlan>;
+                          const prevDay = days[days.indexOf(day) - 1];
+                          setPlan(prev => ({
+                            ...prev,
+                            [day]: { ...(prev[prevDay] || {}) }
+                          }));
+                        }}
+                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium"
+                      >
+                        Copia giorno prec.
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative mb-2">
+                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                      <Search size={12} className="text-slate-400" />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Cerca operatore..."
+                      value={searchTerms[day] || ''}
+                      onChange={e => setSearchTerms(prev => ({ ...prev, [day]: e.target.value }))}
+                      className="w-full pl-7 pr-2 py-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                  </div>
                   <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto p-1 border border-slate-100 rounded bg-slate-50">
-                    {employees.map(emp => (
+                    {[...employees]
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .filter(emp => emp.name.toLowerCase().includes((searchTerms[day] || '').toLowerCase()))
+                      .map(emp => (
                       <label key={emp.id} className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded text-xs cursor-pointer hover:bg-slate-50">
                         <input
                           type="checkbox"
@@ -129,7 +179,7 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
 }
 
 export default function MasterDataPage() {
-  const [activeTab, setActiveTab] = useState<'operatori' | 'cantieri' | 'assegnazioni'>('operatori');
+  const [activeTab, setActiveTab] = useState<'operatori' | 'cantieri'>('operatori');
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -155,24 +205,12 @@ export default function MasterDataPage() {
           >
             Cantieri
           </button>
-          <button
-            onClick={() => setActiveTab('assegnazioni')}
-            className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-              activeTab === 'assegnazioni'
-                ? 'border-indigo-500 text-indigo-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <LinkIcon size={16} />
-            Assegnazioni
-          </button>
         </nav>
       </div>
 
       <div className="mt-6">
         {activeTab === 'operatori' && <OperatoriSection />}
         {activeTab === 'cantieri' && <CantieriSection />}
-        {activeTab === 'assegnazioni' && <AssegnazioniSection />}
       </div>
     </div>
   );
@@ -182,19 +220,21 @@ function OperatoriSection() {
   const { employees, addEmployee, deleteEmployee, updateEmployee } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
   const [type, setType] = useState<'jolly' | 'ordinario'>('jolly');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    addEmployee({ name: name.toUpperCase(), type });
+    addEmployee({ name: name.toUpperCase(), type, company: company.trim() });
     setName('');
+    setCompany('');
     setType('jolly');
   };
 
-  const filteredEmployees = employees.filter(emp =>
-    emp.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEmployees = employees
+    .filter(emp => emp.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -212,6 +252,14 @@ function OperatoriSection() {
                 className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 mb-3"
                 value={name}
                 onChange={e => setName(e.target.value)}
+              />
+              
+              <label className="block text-xs font-medium text-slate-700 mb-1">Azienda</label>
+              <input 
+                type="text" placeholder="Es. Azienda Srl (opzionale)"
+                className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 mb-3"
+                value={company}
+                onChange={e => setCompany(e.target.value)}
               />
               
               <label className="block text-xs font-medium text-slate-700 mb-1">Ruolo</label>
@@ -247,13 +295,14 @@ function OperatoriSection() {
           <table className="min-w-full divide-y divide-slate-100">
             <thead className="bg-slate-50">
               <tr>
-                <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Nome</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Nome e Ruolo</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Azienda</th>
                 <th scope="col" className="px-3 py-2 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-50">
               {filteredEmployees.length === 0 && (
-                <tr><td colSpan={2} className="px-3 py-6 text-center text-xs text-slate-500">Nessun operatore trovato.</td></tr>
+                <tr><td colSpan={3} className="px-3 py-6 text-center text-xs text-slate-500">Nessun operatore trovato.</td></tr>
               )}
               {filteredEmployees.map(emp => (
                 <OperatorRow 
@@ -271,16 +320,18 @@ function OperatoriSection() {
   );
 }
 
-function OperatorRow({ emp, onDelete, onUpdate }: { key?: React.Key, emp: any, onDelete: () => void, onUpdate: (updates: { name?: string, type?: 'jolly' | 'ordinario' }) => void }) {
+function OperatorRow({ emp, onDelete, onUpdate }: { key?: React.Key, emp: any, onDelete: () => void, onUpdate: (updates: { name?: string, type?: 'jolly' | 'ordinario', company?: string }) => void }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(emp.name);
+  const [editedCompany, setEditedCompany] = useState(emp.company || '');
   const [editedType, setEditedType] = useState<'jolly' | 'ordinario'>(emp.type || 'jolly');
 
   const handleSave = () => {
-    if ((editedName.trim() && editedName !== emp.name) || editedType !== (emp.type || 'jolly')) {
-      onUpdate({ name: editedName.toUpperCase(), type: editedType });
+    if ((editedName.trim() && editedName !== emp.name) || editedType !== (emp.type || 'jolly') || editedCompany !== (emp.company || '')) {
+      onUpdate({ name: editedName.toUpperCase(), type: editedType, company: editedCompany.trim() });
     } else {
       setEditedName(emp.name);
+      setEditedCompany(emp.company || '');
       setEditedType(emp.type || 'jolly');
     }
     setIsEditing(false);
@@ -294,7 +345,8 @@ function OperatorRow({ emp, onDelete, onUpdate }: { key?: React.Key, emp: any, o
             <input
               value={editedName}
               onChange={(e) => setEditedName(e.target.value)}
-              className="border border-indigo-300 rounded px-2 py-1 text-sm uppercase w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              placeholder="Nome"
+              className="border border-indigo-300 rounded px-2 py-1 text-sm uppercase w-full max-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
             />
             <select
               value={editedType}
@@ -304,13 +356,10 @@ function OperatorRow({ emp, onDelete, onUpdate }: { key?: React.Key, emp: any, o
               <option value="jolly">Jolly</option>
               <option value="ordinario">Ordinario</option>
             </select>
-            <button onClick={handleSave} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700">
-              <Check size={16} />
-            </button>
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <span className="font-medium text-xs text-slate-900 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly');}}>
+            <span className="font-medium text-xs text-slate-900 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || '');}}>
               {emp.name}
             </span>
             <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
@@ -321,6 +370,25 @@ function OperatorRow({ emp, onDelete, onUpdate }: { key?: React.Key, emp: any, o
               {(!emp.type || emp.type === 'jolly') ? 'Jolly' : 'Ordinario'}
             </span>
           </div>
+        )}
+      </td>
+      <td className="px-3 py-2 whitespace-nowrap">
+        {isEditing ? (
+          <div className="flex gap-2 items-center">
+            <input
+              value={editedCompany}
+              onChange={(e) => setEditedCompany(e.target.value)}
+              placeholder="Azienda"
+              className="border border-indigo-300 rounded px-2 py-1 text-sm w-full max-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+            <button onClick={handleSave} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700">
+              <Check size={16} />
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-slate-600 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || '');}}>
+            {emp.company || <span className="text-slate-400 italic">Non specificata</span>}
+          </span>
         )}
       </td>
       <td className="px-3 py-2 whitespace-nowrap text-right">
@@ -633,63 +701,6 @@ function CantieriSection() {
           ws={workSites.find(w => w.id === editingPlanWorkSiteId)!} 
           onUpdate={updateWorkSite} 
         />
-      )}
-    </div>
-  );
-}
-
-function AssegnazioniSection() {
-  const { workSites, employees, assignments, toggleAssignment } = useAppContext();
-  const [selectedSiteId, setSelectedSiteId] = useState<string>(workSites[0]?.id || '');
-
-  const activeSite = workSites.find(ws => ws.id === selectedSiteId);
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <div className="mb-6 max-w-md">
-        <label className="block text-xs font-medium text-slate-700 mb-2">Seleziona Cantiere per visualizzare/modificare assegnazioni</label>
-        <select 
-          className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50"
-          value={selectedSiteId}
-          onChange={e => setSelectedSiteId(e.target.value)}
-        >
-          {workSites.length === 0 && <option value="">Nessun cantiere disponibile</option>}
-          {workSites.map(ws => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
-        </select>
-      </div>
-
-      {activeSite ? (
-        <div>
-          <h4 className="text-lg font-medium text-slate-800 mb-4 pb-2 border-b border-slate-100">Operatori assegnati a {activeSite.name}</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {employees.map(emp => {
-              const isAssigned = assignments.some(a => a.employeeId === emp.id && a.workSiteId === selectedSiteId);
-              return (
-                <div 
-                  key={emp.id}
-                  onClick={() => toggleAssignment(emp.id, selectedSiteId)}
-                  className={`cursor-pointer p-4 rounded-xl border transition-all flex items-center justify-between shadow-sm ${
-                    isAssigned 
-                      ? 'border-indigo-500 bg-indigo-50' 
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <span className={`font-medium text-sm ${isAssigned ? 'text-indigo-800' : 'text-slate-700'}`}>
-                    {emp.name}
-                  </span>
-                  {isAssigned && <Check size={18} className="text-indigo-600" />}
-                </div>
-              );
-            })}
-            {employees.length === 0 && (
-              <div className="col-span-full text-slate-500 p-4 text-sm">Nessun operatore in anagrafica.</div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="text-center py-12 text-slate-500 text-sm">
-          Seleziona un cantiere per gestire le assegnazioni.
-        </div>
       )}
     </div>
   );
