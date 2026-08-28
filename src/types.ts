@@ -38,15 +38,16 @@ export interface Assignment {
   workSiteId: string;
 }
 
-export type LeaveType = 'Ferie' | 'Permesso' | 'Malattia';
+export type LeaveType = 'Ferie' | 'Permesso' | 'Malattia' | 'Annotazione';
 
 export interface LeaveRequest {
   id: string;
-  employeeId: string;
+  employeeId?: string;
   type: LeaveType;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   status?: 'pending' | 'approved' | 'rejected';
+  notes?: string;
 }
 
 export interface ScheduleEntry {

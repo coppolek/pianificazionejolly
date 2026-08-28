@@ -4,12 +4,20 @@ import { Trash2, UserPlus, Building, Link as LinkIcon, Check, Edit2, Calendar, X
 import { WorkSite, Employee, WeeklyPlan } from '../types';
 
 function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, onClose: () => void, ws: WorkSite, onUpdate: (id: string, updates: Partial<WorkSite>) => void }) {
-  const { employees } = useAppContext();
+  const { employees, assignments } = useAppContext();
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
   
   if (!isOpen) return null;
 
   const [plan, setPlan] = useState<WeeklyPlan>(ws.weeklyPlan || {});
+
+  const assignedEmployeeIds = assignments.filter(a => a.workSiteId === ws.id).map(a => a.employeeId);
+  const assignedEmployees = [...employees]
+    .filter(emp => assignedEmployeeIds.includes(emp.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const availableEmployees = [...employees]
+    .filter(emp => !assignedEmployeeIds.includes(emp.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const handleSave = () => {
     onUpdate(ws.id, { weeklyPlan: plan });
@@ -145,24 +153,58 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
                       className="w-full pl-7 pr-2 py-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     />
                   </div>
-                  <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto p-1 border border-slate-100 rounded bg-slate-50">
-                    {[...employees]
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .filter(emp => emp.name.toLowerCase().includes((searchTerms[day] || '').toLowerCase()))
-                      .map(emp => (
-                      <label key={emp.id} className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded text-xs cursor-pointer hover:bg-slate-50">
-                        <input
-                          type="checkbox"
-                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                          checked={(plan[day]?.assignedOperators || []).includes(emp.id)}
-                          onChange={() => toggleOperator(day, emp.id)}
-                        />
-                        <span className="truncate max-w-[100px]" title={emp.name}>{emp.name}</span>
-                      </label>
-                    ))}
-                    {employees.length === 0 && (
-                      <span className="text-xs text-slate-400 italic py-1 px-2">Nessun operatore disponibile</span>
-                    )}
+                  <div className="flex flex-col gap-3 max-h-[120px] overflow-y-auto p-2 border border-slate-100 rounded bg-slate-50">
+                    {(() => {
+                      const search = (searchTerms[day] || '').toLowerCase();
+                      const filteredAssigned = assignedEmployees.filter(emp => emp.name.toLowerCase().includes(search));
+                      const filteredAvailable = availableEmployees.filter(emp => emp.name.toLowerCase().includes(search));
+                      
+                      return (
+                        <>
+                          {filteredAssigned.length > 0 && (
+                            <div>
+                              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1.5 flex items-center gap-1 border-b border-slate-200 pb-1">Da Sostituire (Assegnati)</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {filteredAssigned.map(emp => (
+                                  <label key={emp.id} className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded text-xs cursor-pointer hover:bg-slate-50 shadow-sm">
+                                    <input
+                                      type="checkbox"
+                                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                      checked={(plan[day]?.assignedOperators || []).includes(emp.id)}
+                                      onChange={() => toggleOperator(day, emp.id)}
+                                    />
+                                    <span className="truncate max-w-[100px] font-medium" title={emp.name}>{emp.name}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {filteredAvailable.length > 0 && (
+                            <div>
+                              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1.5 flex items-center gap-1 border-b border-slate-200 pb-1">Sostituti (Disponibili / Jolly)</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {filteredAvailable.map(emp => (
+                                  <label key={emp.id} className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded text-xs cursor-pointer hover:bg-slate-50 shadow-sm">
+                                    <input
+                                      type="checkbox"
+                                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                      checked={(plan[day]?.assignedOperators || []).includes(emp.id)}
+                                      onChange={() => toggleOperator(day, emp.id)}
+                                    />
+                                    <span className="truncate max-w-[100px]" title={emp.name}>{emp.name}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {filteredAssigned.length === 0 && filteredAvailable.length === 0 && (
+                            <span className="text-xs text-slate-400 italic py-1 px-2">Nessun operatore trovato</span>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

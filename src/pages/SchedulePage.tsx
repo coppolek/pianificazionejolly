@@ -28,7 +28,7 @@ const parseTime = (timeStr: string) => {
 };
 
 export default function SchedulePage() {
-  const { employees, scheduleEntries, deleteScheduleEntry, updateScheduleEntry, updateEmployee } = useAppContext();
+  const { employees, scheduleEntries, leaveRequests, deleteScheduleEntry, updateScheduleEntry, updateEmployee } = useAppContext();
   const [weekOffset, setWeekOffset] = useState(0);
   const weekDays = getWeekDays(weekOffset);
   const [modalData, setModalData] = useState<{
@@ -49,6 +49,23 @@ export default function SchedulePage() {
 
   const startDateStr = formatHeaderDate(weekDays[0].date);
   const endDateStr = formatHeaderDate(weekDays[6].date);
+  
+  const weekStart = weekDays[0].date;
+  const weekEnd = weekDays[6].date;
+  const rawWeeklyLeaves = (leaveRequests || []).filter(req => 
+    req.startDate && req.endDate && req.startDate <= weekEnd && req.endDate >= weekStart
+  ).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+  // Deduplicate leaves in case of accidental double imports
+  const weeklyLeaves = [];
+  const seenLeaves = new Set();
+  for (const leave of rawWeeklyLeaves) {
+    const key = `${leave.employeeId}-${leave.startDate}-${leave.endDate}-${leave.type}-${leave.notes}`;
+    if (!seenLeaves.has(key)) {
+      seenLeaves.add(key);
+      weeklyLeaves.push(leave);
+    }
+  }
 
   return (
     <div className="max-w-full overflow-x-auto pb-20">
@@ -104,6 +121,43 @@ export default function SchedulePage() {
           </div>
         )}
       </div>
+
+      {weeklyLeaves.length > 0 && (
+        <div className="mt-8 min-w-[1200px]">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+            <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
+            Assenze e Annotazioni della Settimana
+          </h3>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {weeklyLeaves.map(leave => {
+              const emp = employees.find(e => e.id === leave.employeeId);
+              const isSingleDay = leave.startDate === leave.endDate;
+              const dateStr = isSingleDay 
+                ? formatHeaderDate(leave.startDate) 
+                : `${formatHeaderDate(leave.startDate)} - ${formatHeaderDate(leave.endDate)}`;
+              
+              return (
+                <div key={leave.id} className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col">
+                  <div className="flex justify-between items-start mb-1 gap-2">
+                    <span className="font-bold text-sm text-gray-900 truncate" title={emp?.name || 'Annotazione Generica'}>
+                      {emp?.name || (leave.employeeId ? 'Operatore eliminato' : 'Annotazione Generica')}
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                      {leave.type}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 mb-2">{dateStr}</div>
+                  {leave.notes && (
+                    <div className="text-xs text-gray-700 bg-amber-50 p-2 rounded mt-auto border border-amber-100/50">
+                      {leave.notes}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
