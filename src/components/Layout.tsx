@@ -1,7 +1,7 @@
 import React from 'react';
-import { Calendar, Users, FileText } from 'lucide-react';
+import { Calendar, Users, FileText, History } from 'lucide-react';
 
-export type Page = 'schedule' | 'leaves' | 'masterData';
+export type Page = 'schedule' | 'leaves' | 'masterData' | 'history';
 
 interface LayoutProps {
   currentPage: Page;
@@ -14,6 +14,7 @@ export default function Layout({ currentPage, setCurrentPage, children }: Layout
     { id: 'schedule', label: 'Planning', icon: Calendar },
     { id: 'leaves', label: 'Ferie, permessi e malattie', icon: FileText },
     { id: 'masterData', label: 'Anagrafiche', icon: Users },
+    { id: 'history', label: 'Storico', icon: History },
   ];
 
   return (

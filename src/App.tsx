@@ -4,11 +4,13 @@
  */
 
 import { useState } from 'react';
+import { Toaster } from 'react-hot-toast';
 import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
 import SchedulePage from './pages/SchedulePage';
 import LeaveRequestsPage from './pages/LeaveRequestsPage';
 import MasterDataPage from './pages/MasterDataPage';
+import HistoryPage from './pages/HistoryPage';
 import type { Page } from './components/Layout';
 
 export default function App() {
@@ -16,10 +18,12 @@ export default function App() {
 
   return (
     <AppProvider>
+      <Toaster position="top-center" />
       <Layout currentPage={currentPage} setCurrentPage={setCurrentPage}>
         {currentPage === 'schedule' && <SchedulePage />}
         {currentPage === 'leaves' && <LeaveRequestsPage />}
         {currentPage === 'masterData' && <MasterDataPage />}
+        {currentPage === 'history' && <HistoryPage />}
       </Layout>
     </AppProvider>
   );
