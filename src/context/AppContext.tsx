@@ -48,7 +48,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setLeaveRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as unknown as LeaveRequest)));
     });
     const unsubSchedule = onSnapshot(collection(db, 'scheduleEntries'), (snapshot) => {
-      setScheduleEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as unknown as ScheduleEntry)));
+      setScheduleEntries(snapshot.docs.map(doc => {
+        const data = doc.data();
+        return { 
+          id: doc.id, 
+          ...data,
+          hours: data.hours > 24 ? data.hours / 60 : data.hours
+        } as unknown as ScheduleEntry;
+      }));
     });
 
     return () => {

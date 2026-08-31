@@ -28,9 +28,10 @@ const parseTime = (timeStr: string) => {
 };
 
 export default function SchedulePage() {
-  const { employees, scheduleEntries, leaveRequests, deleteScheduleEntry, updateScheduleEntry, updateEmployee } = useAppContext();
+  const { employees, scheduleEntries, leaveRequests, deleteScheduleEntry, updateScheduleEntry, addScheduleEntry, updateEmployee } = useAppContext();
   const [weekOffset, setWeekOffset] = useState(0);
   const weekDays = getWeekDays(weekOffset);
+    const [isAutoScheduling, setIsAutoScheduling] = useState(false);
   const [modalData, setModalData] = useState<{
     isEditing?: boolean;
     id?: string;
@@ -148,6 +149,86 @@ export default function SchedulePage() {
 
 
 
+
+  const handleAutoSchedule = async () => {
+    setIsAutoScheduling(true);
+    try {
+      const pendingShifts = [...shiftsToCover].sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return parseTime(a.startTime) - parseTime(b.startTime);
+      });
+
+      const localEntries = [...scheduleEntries];
+      const jollyEmployees = employees.filter(emp => !emp.type || emp.type === 'jolly');
+      
+      for (const shift of pendingShifts) {
+        const shiftStart = parseTime(shift.startTime);
+        const shiftEnd = parseTime(shift.endTime);
+        let shiftHours = (shiftEnd - shiftStart) / 60;
+        if (shiftHours < 0) shiftHours += 24;
+
+        const eligibleOperators = jollyEmployees.filter(emp => {
+          const hasLeave = leaveRequests.some(l => 
+            l.employeeId === emp.id && 
+            l.startDate <= shift.date && 
+            l.endDate >= shift.date && 
+            l.status === 'approved'
+          );
+          if (hasLeave) return false;
+
+          const empEntries = localEntries.filter(e => e.employeeId === emp.id && e.date === shift.date);
+          const hasOverlap = empEntries.some(e => {
+            const eStart = parseTime(e.startTime);
+            const eEnd = parseTime(e.endTime);
+            return (shiftStart < eEnd && shiftEnd > eStart);
+          });
+          return !hasOverlap;
+        });
+
+        if (eligibleOperators.length === 0) continue;
+
+        let bestOp = null;
+        let bestScore = -Infinity;
+
+        for (const op of eligibleOperators) {
+          let score = 0;
+          const opDayEntries = localEntries.filter(e => e.employeeId === op.id && e.date === shift.date);
+          const opWeekEntries = localEntries.filter(e => e.employeeId === op.id && e.date >= weekStart && e.date <= weekEnd);
+          
+          const dayHours = opDayEntries.reduce((acc, e) => acc + e.hours, 0);
+          const weekHours = opWeekEntries.reduce((acc, e) => acc + e.hours, 0);
+
+          score -= dayHours * 10;
+          score -= weekHours * 2;
+
+          if (opDayEntries.some(e => e.taskDescription.includes(shift.workSiteName))) {
+             score += 50; 
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestOp = op;
+          }
+        }
+
+        if (bestOp) {
+          const newEntry = {
+            employeeId: bestOp.id,
+            date: shift.date,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            taskDescription: shift.workSiteName,
+            hours: shiftHours
+          };
+          await addScheduleEntry(newEntry);
+          localEntries.push({ ...newEntry, id: Math.random().toString() });
+        }
+      }
+    } finally {
+      setIsAutoScheduling(false);
+    }
+  };
+
   return (
     <div className="max-w-full overflow-x-auto pb-20">
       <div className="flex justify-between items-start mb-8 min-w-[1200px]">
@@ -198,6 +279,7 @@ export default function SchedulePage() {
               const end = parseTime(shiftData.endTime);
               if (start !== null && end !== null) {
                 hours = (end - start) / 60;
+                if (hours < 0) hours += 24;
               }
               setModalData({
                 employeeId,
@@ -260,10 +342,19 @@ export default function SchedulePage() {
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <span className="w-2 h-6 bg-rose-400 rounded-sm inline-block"></span>
-              Turni da Coprire (Trascina nel calendario)
-            </h3>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <span className="w-2 h-6 bg-rose-400 rounded-sm inline-block"></span>
+                Turni da Coprire
+              </h3>
+              <button 
+                onClick={handleAutoSchedule}
+                disabled={isAutoScheduling || shiftsToCover.length === 0}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold py-1.5 px-3 rounded shadow-sm transition-colors flex items-center gap-2"
+              >
+                {isAutoScheduling ? 'Pianificazione...' : 'Pianificazione Automatica'}
+              </button>
+            </div>
             <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
               {shiftsToCover.length === 0 && <span className="text-sm text-rose-600">Nessun turno scoperto</span>}
               {shiftsToCover.map(shift => (
