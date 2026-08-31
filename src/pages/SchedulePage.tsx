@@ -56,8 +56,9 @@ export default function SchedulePage() {
     req.startDate && req.endDate && req.startDate <= weekEnd && req.endDate >= weekStart
   ).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
+
   // Deduplicate leaves in case of accidental double imports
-  const weeklyLeaves = [];
+  const weeklyLeaves: any[] = [];
   const seenLeaves = new Set();
   for (const leave of rawWeeklyLeaves) {
     const key = `${leave.employeeId}-${leave.startDate}-${leave.endDate}-${leave.type}-${leave.notes}`;
@@ -66,6 +67,86 @@ export default function SchedulePage() {
       weeklyLeaves.push(leave);
     }
   }
+
+  const { workSites } = useAppContext();
+  const dayNamesEnglish: Record<number, string> = {
+    0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday'
+  };
+
+  const shiftsToCover: Array<{
+    id: string;
+    date: string;
+    dateLabel: string;
+    workSiteName: string;
+    startTime: string;
+    endTime: string;
+    missingReason: string;
+  }> = [];
+
+  weekDays.forEach(day => {
+    const d = new Date(day.date);
+    const dayOfWeek = dayNamesEnglish[d.getDay()];
+    const leavesOnDate = weeklyLeaves.filter(l => l.startDate <= day.date && l.endDate >= day.date && l.type !== 'Annotazione');
+
+    workSites.forEach(ws => {
+      const dailyPlan = ws.weeklyPlan?.[dayOfWeek as keyof typeof ws.weeklyPlan];
+      const shifts = dailyPlan?.shifts || [];
+      
+      shifts.forEach((shift, index) => {
+        if (!shift.startTime || !shift.endTime) return;
+        
+        const assigned = shift.assignedOperators || [];
+        let isMissing = false;
+        let reason = '';
+        
+        if (assigned.length === 0) {
+          isMissing = true;
+          reason = 'Nessun op.';
+        } else {
+          const absentOperators = assigned.filter(empId => leavesOnDate.some(l => l.employeeId === empId));
+          if (absentOperators.length > 0) {
+            isMissing = true;
+            const absentNames = absentOperators.map(empId => employees.find(e => e.id === empId)?.name || 'Sconosciuto').join(', ');
+            reason = `Assente: ${absentNames}`;
+          }
+        }
+
+        if (isMissing) {
+          // Controlla se il turno è già stato coperto da un intervento (ScheduleEntry)
+          // Consideriamo coperto se esiste un intervento nella stessa data, con lo stesso nome cantiere,
+          // che copre approssimativamente quegli orari (margine di 30 minuti).
+          const isCovered = scheduleEntries.some(entry => {
+             if (entry.date !== day.date) return false;
+             // Match del nome cantiere
+             if (!entry.taskDescription.toUpperCase().includes(ws.name.toUpperCase())) return false;
+             
+             // Check orari
+             const eStart = parseTime(entry.startTime);
+             const eEnd = parseTime(entry.endTime);
+             const sStart = parseTime(shift.startTime);
+             const sEnd = parseTime(shift.endTime);
+             
+             // Considerato coperto se c'è un minimo di sovrapposizione o corrispondenza
+             return (eStart <= sStart + 60 && eEnd >= sEnd - 60);
+          });
+
+          if (!isCovered) {
+            shiftsToCover.push({
+            id: `${ws.id}-${day.date}-${index}`,
+            date: day.date,
+            dateLabel: day.label,
+            workSiteName: ws.name,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            missingReason: reason
+          });
+          }
+        }
+      });
+    });
+  });
+
+
 
   return (
     <div className="max-w-full overflow-x-auto pb-20">
@@ -111,6 +192,22 @@ export default function SchedulePage() {
             onDelete={deleteScheduleEntry}
             onUpdate={(id, name) => updateEmployee(id, { name })}
             onDropEntry={(entryId, date, employeeId) => updateScheduleEntry(entryId, { date, employeeId })}
+            onDropNew={(shiftData, date, employeeId) => {
+              let hours = 0;
+              const start = parseTime(shiftData.startTime);
+              const end = parseTime(shiftData.endTime);
+              if (start !== null && end !== null) {
+                hours = (end - start) / 60;
+              }
+              setModalData({
+                employeeId,
+                date,
+                startTime: shiftData.startTime,
+                endTime: shiftData.endTime,
+                taskDescription: shiftData.workSiteName,
+                hours: hours > 0 ? hours : undefined
+              });
+            }}
             onEdit={(entry) => setModalData({ ...entry, isEditing: true })}
             onAdd={(date) => setModalData({ employeeId: emp.id, date })}
           />
@@ -122,50 +219,95 @@ export default function SchedulePage() {
         )}
       </div>
 
-      {weeklyLeaves.length > 0 && (
-        <div className="mt-8 min-w-[1200px]">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-            <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
-            Assenze e Annotazioni della Settimana
-          </h3>
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {weeklyLeaves.map(leave => {
-              const emp = employees.find(e => e.id === leave.employeeId);
-              const isSingleDay = leave.startDate === leave.endDate;
-              const dateStr = isSingleDay 
-                ? formatHeaderDate(leave.startDate) 
-                : `${formatHeaderDate(leave.startDate)} - ${formatHeaderDate(leave.endDate)}`;
-              
-              return (
-                <div key={leave.id} className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col">
+
+      {(weeklyLeaves.length > 0 || shiftsToCover.length > 0) && (
+        <div className="mt-8 min-w-[1200px] grid grid-cols-1 xl:grid-cols-2 gap-8">
+          
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
+              Assenze e Annotazioni della Settimana
+            </h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
+              {weeklyLeaves.length === 0 && <span className="text-sm text-amber-600">Nessuna assenza per questa settimana</span>}
+              {weeklyLeaves.map(leave => {
+                const emp = employees.find(e => e.id === leave.employeeId);
+                const isSingleDay = leave.startDate === leave.endDate;
+                const dateStr = isSingleDay 
+                  ? formatHeaderDate(leave.startDate) 
+                  : `${formatHeaderDate(leave.startDate)} - ${formatHeaderDate(leave.endDate)}`;
+                
+                return (
+                  <div key={leave.id} className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col min-h-[100px]">
+                    <div className="flex justify-between items-start mb-1 gap-2">
+                      <span className="font-bold text-sm text-gray-900 truncate" title={emp?.name || 'Annotazione Generica'}>
+                        {emp?.name || (leave.employeeId ? 'Operatore eliminato' : 'Annotazione Generica')}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                        {leave.type}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mb-2">{dateStr}</div>
+                    {leave.notes && (
+                      <div className="text-xs text-gray-700 bg-amber-50 p-2 rounded mt-auto border border-amber-100/50">
+                        {leave.notes}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <span className="w-2 h-6 bg-rose-400 rounded-sm inline-block"></span>
+              Turni da Coprire (Trascina nel calendario)
+            </h3>
+            <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
+              {shiftsToCover.length === 0 && <span className="text-sm text-rose-600">Nessun turno scoperto</span>}
+              {shiftsToCover.map(shift => (
+                <div 
+                  key={shift.id} 
+                  className="bg-white p-3 rounded-lg shadow-sm border border-rose-100 flex flex-col cursor-move hover:shadow-md transition-shadow active:cursor-grabbing"
+                  draggable
+                  onDragStart={(ev) => {
+                    const data = {
+                      type: 'NEW_SHIFT',
+                      workSiteName: shift.workSiteName,
+                      startTime: shift.startTime,
+                      endTime: shift.endTime
+                    };
+                    ev.dataTransfer.setData('application/json', JSON.stringify(data));
+                  }}
+                >
                   <div className="flex justify-between items-start mb-1 gap-2">
-                    <span className="font-bold text-sm text-gray-900 truncate" title={emp?.name || 'Annotazione Generica'}>
-                      {emp?.name || (leave.employeeId ? 'Operatore eliminato' : 'Annotazione Generica')}
+                    <span className="font-bold text-sm text-gray-900 truncate" title={shift.workSiteName}>
+                      {shift.workSiteName}
                     </span>
-                    <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
-                      {leave.type}
+                    <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 shrink-0">
+                      {shift.startTime} - {shift.endTime}
                     </span>
                   </div>
-                  <div className="text-xs text-gray-500 mb-2">{dateStr}</div>
-                  {leave.notes && (
-                    <div className="text-xs text-gray-700 bg-amber-50 p-2 rounded mt-auto border border-amber-100/50">
-                      {leave.notes}
-                    </div>
-                  )}
+                  <div className="text-xs font-semibold text-gray-700 mb-2">{shift.dateLabel}</div>
+                  <div className="text-xs text-rose-700 bg-rose-50/50 px-2 py-1.5 rounded mt-auto border border-rose-100/50 font-medium">
+                    {shift.missingReason}
+                  </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
 
 function EmployeeScheduleBlock({ 
-  employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry 
+  employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew 
 }: { 
-  key?: React.Key, employee: any, weekDays: any[], entries: ScheduleEntry[], onDelete: (id: string) => void, onUpdate: (id: string, name: string) => void, onAdd: (date: string) => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void 
+  key?: React.Key, employee: any, weekDays: any[], entries: ScheduleEntry[], onDelete: (id: string) => void, onUpdate: (id: string, name: string) => void, onAdd: (date: string) => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void, onDropNew: (shiftData: any, date: string, employeeId: string) => void 
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(employee.name);
@@ -215,6 +357,7 @@ function EmployeeScheduleBlock({
             onAdd={() => onAdd(day.date)}
             onEdit={onEdit}
             onDropEntry={onDropEntry}
+            onDropNew={onDropNew}
           />
         ))}
       </div>
@@ -223,9 +366,9 @@ function EmployeeScheduleBlock({
 }
 
 function DayColumn({ 
-  day, employeeId, isLast, entries, onDelete, onAdd, onEdit, onDropEntry
+  day, employeeId, isLast, entries, onDelete, onAdd, onEdit, onDropEntry, onDropNew
 }: { 
-  key?: React.Key, day: any, employeeId: string, isLast: boolean, entries: ScheduleEntry[], onDelete: (id: string) => void, onAdd: () => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void
+  key?: React.Key, day: any, employeeId: string, isLast: boolean, entries: ScheduleEntry[], onDelete: (id: string) => void, onAdd: () => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void, onDropNew: (shiftData: any, date: string, employeeId: string) => void
 }) {
   const { scheduleEntries } = useAppContext();
   const sortedEntries = [...entries].sort((a, b) => parseTime(a.startTime) - parseTime(b.startTime));
@@ -237,6 +380,19 @@ function DayColumn({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    
+    // Check for JSON data first (Turno da coprire)
+    try {
+      const jsonData = e.dataTransfer.getData('application/json');
+      if (jsonData) {
+        const data = JSON.parse(jsonData);
+        if (data.type === 'NEW_SHIFT') {
+          onDropNew(data, day.date, employeeId);
+          return;
+        }
+      }
+    } catch (err) {}
+
     const entryId = e.dataTransfer.getData('text/plain');
     if (entryId) {
       const droppedEntry = scheduleEntries.find(e => e.id === entryId);

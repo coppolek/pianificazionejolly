@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Trash2, UserPlus, Building, Link as LinkIcon, Check, Edit2, Calendar, X, Search } from 'lucide-react';
+import { Trash2, UserPlus, Building, Check, Edit2, Calendar, X, Search, Plus } from 'lucide-react';
 import { WorkSite, Employee, WeeklyPlan } from '../types';
 
 function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, onClose: () => void, ws: WorkSite, onUpdate: (id: string, updates: Partial<WorkSite>) => void }) {
@@ -9,7 +9,32 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
   
   if (!isOpen) return null;
 
-  const [plan, setPlan] = useState<WeeklyPlan>(ws.weeklyPlan || {});
+  const [plan, setPlan] = useState<WeeklyPlan>(() => {
+    const initial = ws.weeklyPlan || {};
+    const normalized: WeeklyPlan = {};
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+    days.forEach(day => {
+      const d = initial[day];
+      if (d) {
+        normalized[day] = { ...d };
+        if (!normalized[day]?.shifts) {
+           if (d.startTime || d.endTime || (d.assignedOperators && d.assignedOperators.length > 0)) {
+             normalized[day]!.shifts = [{
+               id: Math.random().toString(36).substr(2, 9),
+               startTime: d.startTime || '',
+               endTime: d.endTime || '',
+               assignedOperators: d.assignedOperators || []
+             }];
+           } else {
+             normalized[day]!.shifts = [];
+           }
+        }
+      } else {
+        normalized[day] = { shifts: [] };
+      }
+    });
+    return normalized;
+  });
 
   const assignedEmployeeIds = assignments.filter(a => a.workSiteId === ws.id).map(a => a.employeeId);
   const assignedEmployees = [...employees]
@@ -34,39 +59,90 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
     sunday: 'Domenica'
   };
 
-  const updateDailyPlan = (day: keyof WeeklyPlan, field: keyof NonNullable<WeeklyPlan[keyof WeeklyPlan]>, value: any) => {
-    setPlan(prev => ({
-      ...prev,
-      [day]: {
-        ...(prev[day] || {}),
-        [field]: value
-      }
-    }));
+  const updateShift = (day: keyof WeeklyPlan, shiftId: string, field: 'startTime' | 'endTime', value: string) => {
+    setPlan(prev => {
+      const dayPlan = prev[day] || { shifts: [] };
+      const shifts = dayPlan.shifts || [];
+      return {
+        ...prev,
+        [day]: {
+          ...dayPlan,
+          shifts: shifts.map(s => s.id === shiftId ? { ...s, [field]: value } : s)
+        }
+      };
+    });
   };
 
-  const toggleOperator = (day: keyof WeeklyPlan, employeeId: string) => {
-    const currentDayPlan = plan[day] || {};
-    const assigned = currentDayPlan.assignedOperators || [];
-    
-    if (assigned.includes(employeeId)) {
-      updateDailyPlan(day, 'assignedOperators', assigned.filter(id => id !== employeeId));
-    } else {
-      updateDailyPlan(day, 'assignedOperators', [...assigned, employeeId]);
-    }
+  const addShift = (day: keyof WeeklyPlan) => {
+    setPlan(prev => {
+      const dayPlan = prev[day] || { shifts: [] };
+      const shifts = dayPlan.shifts || [];
+      return {
+        ...prev,
+        [day]: {
+          ...dayPlan,
+          shifts: [...shifts, { id: Math.random().toString(36).substr(2, 9), startTime: '', endTime: '', assignedOperators: [] }]
+        }
+      };
+    });
+  };
+
+  const removeShift = (day: keyof WeeklyPlan, shiftId: string) => {
+    setPlan(prev => {
+      const dayPlan = prev[day] || { shifts: [] };
+      const shifts = dayPlan.shifts || [];
+      return {
+        ...prev,
+        [day]: {
+          ...dayPlan,
+          shifts: shifts.filter(s => s.id !== shiftId)
+        }
+      };
+    });
+  };
+
+  const toggleShiftOperator = (day: keyof WeeklyPlan, shiftId: string, employeeId: string) => {
+    setPlan(prev => {
+      const dayPlan = prev[day] || { shifts: [] };
+      const shifts = dayPlan.shifts || [];
+      return {
+        ...prev,
+        [day]: {
+          ...dayPlan,
+          shifts: shifts.map(s => {
+            if (s.id !== shiftId) return s;
+            const assigned = s.assignedOperators || [];
+            if (assigned.includes(employeeId)) {
+              return { ...s, assignedOperators: assigned.filter(id => id !== employeeId) };
+            } else {
+              return { ...s, assignedOperators: [...assigned, employeeId] };
+            }
+          })
+        }
+      };
+    });
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-5xl max-h-[90vh] flex flex-col">
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
-          <h3 className="font-semibold text-slate-800">Piano Settimanale: {ws.name}</h3>
+          <h3 className="font-semibold text-slate-800">Associazione e Piano Orari: {ws.name}</h3>
           <div className="flex items-center gap-4">
             <button 
               onClick={() => {
-                const mondayPlan = plan.monday || {};
+                const mondayPlan = plan.monday || { shifts: [] };
                 const newPlan = { ...plan };
                 (Object.keys(daysMap) as Array<keyof WeeklyPlan>).forEach(d => {
-                  newPlan[d] = { ...mondayPlan };
+                  if (d !== 'monday') {
+                     // Create new copies of shifts for the other days
+                     const clonedShifts = (mondayPlan.shifts || []).map(s => ({
+                       ...s,
+                       id: Math.random().toString(36).substr(2, 9),
+                       assignedOperators: [...(s.assignedOperators || [])]
+                     }));
+                     newPlan[d] = { ...mondayPlan, shifts: clonedShifts };
+                  }
                 });
                 setPlan(newPlan);
               }}
@@ -79,137 +155,143 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
             </button>
           </div>
         </div>
-        <div className="p-6 overflow-y-auto space-y-6">
-          {(Object.keys(daysMap) as Array<keyof WeeklyPlan>).map(day => (
-            <div key={day} className="flex flex-col xl:flex-row gap-4 pb-6 border-b border-slate-100 last:border-0 last:pb-0">
-              <label className="w-24 text-sm font-semibold text-slate-800 pt-2 shrink-0">
-                {daysMap[day]}
-              </label>
-              
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Ingresso</label>
-                    <input 
-                      type="time"
-                      value={plan[day]?.startTime || ''}
-                      onChange={e => updateDailyPlan(day, 'startTime', e.target.value)}
-                      className="w-full border border-slate-200 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Uscita</label>
-                    <input 
-                      type="time"
-                      value={plan[day]?.endTime || ''}
-                      onChange={e => updateDailyPlan(day, 'endTime', e.target.value)}
-                      className="w-full border border-slate-200 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
+        <div className="p-6 overflow-y-auto space-y-8">
+          {(Object.keys(daysMap) as Array<keyof WeeklyPlan>).map(day => {
+            const shifts = plan[day]?.shifts || [];
+            return (
+              <div key={day} className="flex flex-col xl:flex-row gap-6 pb-8 border-b border-slate-100 last:border-0 last:pb-0">
+                <div className="w-24 shrink-0 flex flex-col gap-2 pt-2">
+                  <label className="text-sm font-bold text-slate-800">
+                    {daysMap[day]}
+                  </label>
+                  <button
+                    onClick={() => addShift(day)}
+                    className="flex items-center justify-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 rounded border border-indigo-100 transition-colors"
+                  >
+                    <Plus size={14} /> Fascia oraria
+                  </button>
                 </div>
                 
-                <div>
-                  <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">N. Operatori</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="number"
-                      min="0"
-                      placeholder="Es. 2"
-                      value={plan[day]?.operatorsCount || ''}
-                      onChange={e => updateDailyPlan(day, 'operatorsCount', e.target.value)}
-                      className="w-full border border-slate-200 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-                
-                <div className="md:col-span-3 lg:col-span-1">
-                  <div className="flex justify-between items-end mb-1">
-                    <label className="block text-[10px] text-slate-500 uppercase font-semibold">Operatori Assegnati</label>
-                    {day !== 'monday' && (
-                      <button 
-                        onClick={() => {
-                          const days = Object.keys(daysMap) as Array<keyof WeeklyPlan>;
-                          const prevDay = days[days.indexOf(day) - 1];
-                          setPlan(prev => ({
-                            ...prev,
-                            [day]: { ...(prev[prevDay] || {}) }
-                          }));
-                        }}
-                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium"
-                      >
-                        Copia giorno prec.
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative mb-2">
-                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                      <Search size={12} className="text-slate-400" />
-                    </div>
-                    <input 
-                      type="text" 
-                      placeholder="Cerca operatore..."
-                      value={searchTerms[day] || ''}
-                      onChange={e => setSearchTerms(prev => ({ ...prev, [day]: e.target.value }))}
-                      className="w-full pl-7 pr-2 py-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-3 max-h-[120px] overflow-y-auto p-2 border border-slate-100 rounded bg-slate-50">
-                    {(() => {
-                      const search = (searchTerms[day] || '').toLowerCase();
-                      const filteredAssigned = assignedEmployees.filter(emp => emp.name.toLowerCase().includes(search));
-                      const filteredAvailable = availableEmployees.filter(emp => emp.name.toLowerCase().includes(search));
-                      
-                      return (
-                        <>
-                          {filteredAssigned.length > 0 && (
-                            <div>
-                              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1.5 flex items-center gap-1 border-b border-slate-200 pb-1">Da Sostituire (Assegnati)</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {filteredAssigned.map(emp => (
-                                  <label key={emp.id} className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded text-xs cursor-pointer hover:bg-slate-50 shadow-sm">
-                                    <input
-                                      type="checkbox"
-                                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                      checked={(plan[day]?.assignedOperators || []).includes(emp.id)}
-                                      onChange={() => toggleOperator(day, emp.id)}
-                                    />
-                                    <span className="truncate max-w-[100px] font-medium" title={emp.name}>{emp.name}</span>
-                                  </label>
-                                ))}
+                <div className="flex-1 flex flex-col gap-4">
+                  {shifts.length === 0 ? (
+                    <div className="text-sm text-slate-500 italic py-4">Nessuna fascia oraria per questo giorno.</div>
+                  ) : (
+                    shifts.map((shift, index) => (
+                      <div key={shift.id} className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4 bg-slate-50/50 p-4 rounded-lg border border-slate-100 relative group">
+                        
+                        <div className="flex flex-col gap-3">
+                           <div className="flex justify-between items-center">
+                             <span className="text-[10px] font-bold text-slate-500 uppercase">Fascia {index + 1}</span>
+                             <button 
+                               onClick={() => removeShift(day, shift.id)}
+                               className="text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                               title="Elimina fascia oraria"
+                             >
+                               <Trash2 size={14} />
+                             </button>
+                           </div>
+                           <div className="flex gap-2">
+                             <div className="flex-1">
+                               <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Ingresso</label>
+                               <input 
+                                 type="time"
+                                 value={shift.startTime || ''}
+                                 onChange={e => updateShift(day, shift.id, 'startTime', e.target.value)}
+                                 className="w-full border border-slate-200 rounded p-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                               />
+                             </div>
+                             <div className="flex-1">
+                               <label className="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Uscita</label>
+                               <input 
+                                 type="time"
+                                 value={shift.endTime || ''}
+                                 onChange={e => updateShift(day, shift.id, 'endTime', e.target.value)}
+                                 className="w-full border border-slate-200 rounded p-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                               />
+                             </div>
+                           </div>
+                        </div>
+
+                        <div className="flex flex-col border-t md:border-t-0 md:border-l border-slate-200 pt-3 md:pt-0 md:pl-4">
+                          <div className="flex justify-between items-end mb-2">
+                            <label className="block text-[10px] text-slate-500 uppercase font-semibold">Operatori Assegnati ({shift.assignedOperators?.length || 0})</label>
+                            <div className="relative w-48">
+                              <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                                <Search size={12} className="text-slate-400" />
                               </div>
+                              <input 
+                                type="text" 
+                                placeholder="Cerca..."
+                                value={searchTerms[`${day}_${shift.id}`] || ''}
+                                onChange={e => setSearchTerms(prev => ({ ...prev, [`${day}_${shift.id}`]: e.target.value }))}
+                                className="w-full pl-7 pr-2 py-1 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white"
+                              />
                             </div>
-                          )}
+                          </div>
                           
-                          {filteredAvailable.length > 0 && (
-                            <div>
-                              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1.5 flex items-center gap-1 border-b border-slate-200 pb-1">Sostituti (Disponibili / Jolly)</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {filteredAvailable.map(emp => (
-                                  <label key={emp.id} className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded text-xs cursor-pointer hover:bg-slate-50 shadow-sm">
-                                    <input
-                                      type="checkbox"
-                                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                      checked={(plan[day]?.assignedOperators || []).includes(emp.id)}
-                                      onChange={() => toggleOperator(day, emp.id)}
-                                    />
-                                    <span className="truncate max-w-[100px]" title={emp.name}>{emp.name}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {filteredAssigned.length === 0 && filteredAvailable.length === 0 && (
-                            <span className="text-xs text-slate-400 italic py-1 px-2">Nessun operatore trovato</span>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
+                          <div className="flex flex-col gap-3 max-h-[140px] overflow-y-auto pr-1">
+                            {(() => {
+                              const search = (searchTerms[`${day}_${shift.id}`] || '').toLowerCase();
+                              const filteredAssigned = assignedEmployees.filter(emp => emp.name.toLowerCase().includes(search));
+                              const filteredAvailable = availableEmployees.filter(emp => emp.name.toLowerCase().includes(search));
+                              const currentAssigned = shift.assignedOperators || [];
+                              
+                              return (
+                                <>
+                                  {filteredAssigned.length > 0 && (
+                                    <div>
+                                      <div className="text-[9px] text-slate-400 uppercase font-bold mb-1 flex items-center gap-1">Da Sostituire (Assegnati al cantiere)</div>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {filteredAssigned.map(emp => (
+                                          <label key={emp.id} className={`flex items-center gap-1 border px-2 py-1 rounded text-xs cursor-pointer shadow-sm transition-colors ${currentAssigned.includes(emp.id) ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                                            <input
+                                              type="checkbox"
+                                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                              checked={currentAssigned.includes(emp.id)}
+                                              onChange={() => toggleShiftOperator(day, shift.id, emp.id)}
+                                            />
+                                            <span className="truncate max-w-[120px] font-medium" title={emp.name}>{emp.name}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {filteredAvailable.length > 0 && (
+                                    <div>
+                                      <div className="text-[9px] text-slate-400 uppercase font-bold mb-1 flex items-center gap-1">Sostituti (Disponibili / Jolly)</div>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {filteredAvailable.map(emp => (
+                                          <label key={emp.id} className={`flex items-center gap-1 border px-2 py-1 rounded text-xs cursor-pointer shadow-sm transition-colors ${currentAssigned.includes(emp.id) ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                                            <input
+                                              type="checkbox"
+                                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                              checked={currentAssigned.includes(emp.id)}
+                                              onChange={() => toggleShiftOperator(day, shift.id, emp.id)}
+                                            />
+                                            <span className="truncate max-w-[120px]" title={emp.name}>{emp.name}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {filteredAssigned.length === 0 && filteredAvailable.length === 0 && (
+                                    <span className="text-xs text-slate-400 italic py-1 px-2">Nessun operatore trovato</span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Annulla</button>
@@ -562,7 +644,7 @@ const WorkSiteRow: React.FC<{ ws: WorkSite, onDelete: () => void, onUpdate: (id:
               <button 
                 onClick={onEditPlan}
                 className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
-                title="Piano Settimanale"
+                title="Associazione e Piano Orari"
               >
                 <Calendar size={16} />
               </button>
@@ -730,7 +812,13 @@ function CantieriSection() {
                 <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">Nessun cantiere trovato.</td></tr>
               )}
               {filteredWorkSites.map(ws => (
-                <WorkSiteRow key={ws.id} ws={ws} onDelete={() => deleteWorkSite(ws.id)} onUpdate={updateWorkSite} onEditPlan={() => setEditingPlanWorkSiteId(ws.id)} />
+                <WorkSiteRow 
+                  key={ws.id} 
+                  ws={ws} 
+                  onDelete={() => deleteWorkSite(ws.id)} 
+                  onUpdate={updateWorkSite} 
+                  onEditPlan={() => setEditingPlanWorkSiteId(ws.id)} 
+                />
               ))}
             </tbody>
           </table>

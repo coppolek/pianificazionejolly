@@ -4,11 +4,19 @@ export interface Employee {
   type?: 'jolly' | 'ordinario';
 }
 
+export interface ShiftPlan {
+  id: string;
+  startTime?: string;
+  endTime?: string;
+  assignedOperators?: string[];
+}
+
 export interface DailyPlan {
   startTime?: string;
   endTime?: string;
   operatorsCount?: string;
   assignedOperators?: string[];
+  shifts?: ShiftPlan[];
 }
 
 export interface WeeklyPlan {
