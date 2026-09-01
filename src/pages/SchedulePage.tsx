@@ -496,7 +496,20 @@ export default function SchedulePage() {
                   : `${formatHeaderDate(leave.startDate)} - ${formatHeaderDate(leave.endDate)}`;
                 
                 return (
-                  <div key={leave.id} className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col min-h-[100px]">
+                  <div 
+                    key={leave.id} 
+                    className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col min-h-[100px] cursor-move hover:shadow-md transition-shadow active:cursor-grabbing"
+                    draggable
+                    onDragStart={(ev) => {
+                      const data = {
+                        type: 'NEW_SHIFT',
+                        workSiteName: leave.notes ? `${leave.type}: ${leave.notes}` : leave.type,
+                        startTime: '',
+                        endTime: ''
+                      };
+                      ev.dataTransfer.setData('application/json', JSON.stringify(data));
+                    }}
+                  >
                     <div className="flex justify-between items-start mb-1 gap-2">
                       <span className="font-bold text-sm text-gray-900 truncate min-w-0 flex-1" title={emp?.name || 'Annotazione Generica'}>
                         {emp?.name || (leave.employeeId ? 'Operatore eliminato' : 'Annotazione Generica')}
