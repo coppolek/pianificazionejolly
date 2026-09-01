@@ -67,3 +67,10 @@ export interface ScheduleEntry {
   taskDescription: string;
   hours: number;
 }
+
+export type UserRole = 'admin' | 'operator';
+
+export interface UserRoleData {
+  email: string;
+  role: UserRole;
+}

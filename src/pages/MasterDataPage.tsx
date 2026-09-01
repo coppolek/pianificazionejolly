@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { Trash2, UserPlus, Building, Check, Edit2, Calendar, X, Search, Plus, Link } from 'lucide-react';
 import { WorkSite, Employee, WeeklyPlan } from '../types';
 
@@ -303,6 +304,7 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
 }
 
 export default function MasterDataPage() {
+  const { isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<'operatori' | 'cantieri'>('operatori');
 
   return (

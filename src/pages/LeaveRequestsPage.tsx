@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { LeaveType, Employee } from '../types';
 import { Trash2, Plus, CheckCircle2, XCircle, Clock, ChevronDown, Search, Edit2 } from 'lucide-react';
 import { LeaveRequest } from '../types';
 
 export default function LeaveRequestsPage() {
+  const { isAdmin } = useAuth();
   const { leaveRequests, employees, addLeaveRequest, updateLeaveRequest, deleteLeaveRequest } = useAppContext();
   const [isAdding, setIsAdding] = useState(false);
   const [editingRequest, setEditingRequest] = useState<LeaveRequest | null>(null);

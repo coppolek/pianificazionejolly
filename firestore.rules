@@ -1,11 +1,22 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // In a real app we'd secure this with auth, 
-    // but for the sake of this prototype and without authentication setup yet:
+    
+    function isAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/userRoles/$(request.auth.token.email.lower())).data.role == 'admin';
+    }
+
+    match /userRoles/{email} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin() || (request.auth != null && request.auth.token.email.lower() == 'coppolek@gmail.com' && request.auth.token.email.lower() == email);
+    }
+    
+    // Default rules for other collections
     match /{document=**} {
-      allow read, write: if true;
+      allow read: if request.auth != null;
+      // Allow writes if admin
+      allow write: if isAdmin();
     }
   }
 }

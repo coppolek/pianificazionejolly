@@ -1,6 +1,7 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { ScheduleEntry } from '../types';
 import { ChevronLeft, ChevronRight, X, Search, Building2, Calendar as CalendarIcon, FilterX } from 'lucide-react';
 
@@ -29,6 +30,7 @@ const parseTime = (timeStr: string) => {
 };
 
 export default function SchedulePage() {
+  const { isAdmin } = useAuth();
   const { employees, scheduleEntries, leaveRequests, deleteScheduleEntry, updateScheduleEntry, addScheduleEntry, updateEmployee, workSites } = useAppContext();
   const [weekOffset, setWeekOffset] = useState(0);
   const [filterDate, setFilterDate] = useState('');
@@ -337,7 +339,7 @@ export default function SchedulePage() {
 
       <div className="space-y-8 min-w-[1200px]">
         {employees.filter(emp => !emp.type || emp.type === 'jolly').map(emp => (
-          <EmployeeScheduleBlock 
+          <EmployeeScheduleBlock isAdmin={isAdmin} 
             key={emp.id} 
             employee={emp} 
             weekDays={weekDays} 
@@ -469,8 +471,8 @@ export default function SchedulePage() {
 }
 
 function EmployeeScheduleBlock({ 
-  employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew 
-}: { 
+  isAdmin, employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew 
+}: { isAdmin?: boolean; 
   key?: React.Key, employee: any, weekDays: any[], entries: ScheduleEntry[], onDelete: (id: string) => void, onUpdate: (id: string, name: string) => void, onAdd: (date: string) => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void, onDropNew: (shiftData: any, date: string, employeeId: string) => void 
 }) {
   const [isEditing, setIsEditing] = useState(false);
