@@ -36,6 +36,7 @@ export default function SchedulePage() {
   const [filterDate, setFilterDate] = useState('');
   const [filterWorkSite, setFilterWorkSite] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [mobileDayIndex, setMobileDayIndex] = useState(() => { const day = new Date().getDay(); return day === 0 ? 6 : day - 1; });
   
   useEffect(() => {
     if (filterDate) {
@@ -337,13 +338,33 @@ export default function SchedulePage() {
         />
       )}
 
-      <div className="space-y-8 min-w-[1200px]">
+            {/* Mobile Day Navigation */}
+      <div className="md:hidden flex items-center justify-between bg-white border border-[#c2dcf3] rounded-lg shadow-sm h-12 mb-6">
+        <button 
+          onClick={() => setMobileDayIndex(prev => prev > 0 ? prev - 1 : 6)}
+          className="px-4 h-full flex items-center hover:bg-[#f4f9ff] border-r border-[#c2dcf3] text-[#1e5b99] transition-colors rounded-l-lg"
+        >
+          <ChevronLeft size={24} />
+        </button>
+        <span className="font-bold text-[#1e5b99] uppercase tracking-wide text-sm">
+          {weekDays[mobileDayIndex]?.label}
+        </span>
+        <button 
+          onClick={() => setMobileDayIndex(prev => prev < 6 ? prev + 1 : 0)}
+          className="px-4 h-full flex items-center hover:bg-[#f4f9ff] border-l border-[#c2dcf3] text-[#1e5b99] transition-colors rounded-r-lg"
+        >
+          <ChevronRight size={24} />
+        </button>
+      </div>
+
+      <div className="space-y-8 min-w-full md:min-w-[1200px]">
         {employees.filter(emp => !emp.type || emp.type === 'jolly').map(emp => (
           <EmployeeScheduleBlock isAdmin={isAdmin} 
             key={emp.id} 
             employee={emp} 
             weekDays={weekDays} 
             entries={scheduleEntries.filter(e => e.employeeId === emp.id)}
+            mobileDayIndex={mobileDayIndex}
             onDelete={deleteScheduleEntry}
             onUpdate={(id, name) => updateEmployee(id, { name })}
             onDropEntry={(entryId, date, employeeId) => updateScheduleEntry(entryId, { date, employeeId })}
@@ -471,8 +492,8 @@ export default function SchedulePage() {
 }
 
 function EmployeeScheduleBlock({ 
-  isAdmin, employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew 
-}: { isAdmin?: boolean; 
+  isAdmin, mobileDayIndex, employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew 
+}: { isAdmin?: boolean; mobileDayIndex: number; 
   key?: React.Key, employee: any, weekDays: any[], entries: ScheduleEntry[], onDelete: (id: string) => void, onUpdate: (id: string, name: string) => void, onAdd: (date: string) => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void, onDropNew: (shiftData: any, date: string, employeeId: string) => void 
 }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -513,18 +534,20 @@ function EmployeeScheduleBlock({
       </div>
       <div className="flex flex-1">
         {weekDays.map((day, idx) => (
+          <div key={day.date} className={`flex-1 flex-col ${idx !== mobileDayIndex ? 'hidden md:flex' : 'flex'} ${idx !== 6 ? 'md:border-r border-gray-200' : ''}`}>
           <DayColumn 
             key={day.date} 
             day={day} 
             employeeId={employee.id}
-            isLast={idx === 6} 
             entries={entries.filter(e => e.date === day.date)}
             onDelete={onDelete}
             onAdd={() => onAdd(day.date)}
             onEdit={onEdit}
             onDropEntry={onDropEntry}
             onDropNew={onDropNew}
+            isLast={true}
           />
+          </div>
         ))}
       </div>
     </div>
@@ -619,7 +642,7 @@ function DayColumn({
 
   return (
     <div 
-      className={`flex-1 flex flex-col min-h-[140px] ${isLast ? '' : 'border-r border-gray-200'}`}
+      className={`flex-1 flex flex-col min-h-[140px]`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
