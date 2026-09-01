@@ -357,7 +357,8 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      <div className="space-y-8 min-w-full md:min-w-[1200px]">
+      <div className="overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+        <div className="space-y-8 min-w-full md:min-w-[1200px]">
         {employees.filter(emp => !emp.type || emp.type === 'jolly').map(emp => (
           <EmployeeScheduleBlock isAdmin={isAdmin} 
             key={emp.id} 
@@ -389,6 +390,37 @@ export default function SchedulePage() {
             onAdd={(date) => setModalData({ employeeId: emp.id, date })}
           />
         ))}
+
+        {/* Blocco Virtuale Coperture Operatori Ordinari */}
+        <EmployeeScheduleBlock 
+          isAdmin={isAdmin}
+          mobileDayIndex={mobileDayIndex}
+          employee={{ id: 'ordinari', name: 'COPERTURE OPERATORI ORDINARI', isVirtual: true }}
+          weekDays={weekDays}
+          entries={scheduleEntries.filter(e => e.employeeId === 'ordinari' && weekDays.some(d => d.date === e.date))}
+          onDelete={deleteScheduleEntry}
+          onUpdate={() => {}}
+          onDropEntry={(entryId, date) => updateScheduleEntry(entryId, { date, employeeId: 'ordinari' })}
+          onDropNew={(shiftData, date) => {
+            let hours = 0;
+            const start = parseTime(shiftData.startTime);
+            const end = parseTime(shiftData.endTime);
+            if (start !== null && end !== null) {
+              hours = (end - start) / 60;
+              if (hours < 0) hours += 24;
+            }
+            setModalData({
+              employeeId: 'ordinari',
+              date,
+              startTime: shiftData.startTime,
+              endTime: shiftData.endTime,
+              taskDescription: shiftData.workSiteName,
+              hours: hours > 0 ? hours : undefined
+            });
+          }}
+          onEdit={(entry) => setModalData({ ...entry, isEditing: true })}
+          onAdd={(date) => setModalData({ employeeId: 'ordinari', date })}
+        />
         {employees.filter(emp => !emp.type || emp.type === 'jolly').length === 0 && (
           <div className="text-center py-12 text-gray-500 bg-white rounded-xl border border-gray-200 shadow-sm">
             Nessun operatore Jolly in anagrafica.
@@ -397,46 +429,11 @@ export default function SchedulePage() {
       </div>
 
       </div>
+      </div>
 
       {(weeklyLeaves.length > 0 || shiftsToCover.length > 0) && (
-        <div className="mt-8 min-w-[1200px] grid grid-cols-1 xl:grid-cols-2 gap-8">
+        <div className="mt-8 flex flex-col gap-8 w-full">
           
-          <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
-              Assenze e Annotazioni della Settimana
-            </h3>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
-              {weeklyLeaves.length === 0 && <span className="text-sm text-amber-600">Nessuna assenza per questa settimana</span>}
-              {weeklyLeaves.map(leave => {
-                const emp = employees.find(e => e.id === leave.employeeId);
-                const isSingleDay = leave.startDate === leave.endDate;
-                const dateStr = isSingleDay 
-                  ? formatHeaderDate(leave.startDate) 
-                  : `${formatHeaderDate(leave.startDate)} - ${formatHeaderDate(leave.endDate)}`;
-                
-                return (
-                  <div key={leave.id} className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col min-h-[100px]">
-                    <div className="flex justify-between items-start mb-1 gap-2">
-                      <span className="font-bold text-sm text-gray-900 truncate" title={emp?.name || 'Annotazione Generica'}>
-                        {emp?.name || (leave.employeeId ? 'Operatore eliminato' : 'Annotazione Generica')}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
-                        {leave.type}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 mb-2">{dateStr}</div>
-                    {leave.notes && (
-                      <div className="text-xs text-gray-700 bg-amber-50 p-2 rounded mt-auto border border-amber-100/50">
-                        {leave.notes}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
           <div>
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
@@ -469,19 +466,54 @@ export default function SchedulePage() {
                   }}
                 >
                   <div className="flex justify-between items-start mb-1 gap-2">
-                    <span className="font-bold text-sm text-gray-900 truncate" title={shift.workSiteName}>
+                    <span className="font-bold text-sm text-gray-900 truncate min-w-0 flex-1" title={shift.workSiteName}>
                       {shift.workSiteName}
                     </span>
                     <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 shrink-0">
                       {shift.startTime} - {shift.endTime}
                     </span>
                   </div>
-                  <div className="text-xs font-semibold text-gray-700 mb-2">{shift.dateLabel}</div>
-                  <div className="text-xs text-rose-700 bg-rose-50/50 px-2 py-1.5 rounded mt-auto border border-rose-100/50 font-medium">
+                  <div className="text-xs font-semibold text-gray-700 mb-2 truncate min-w-0">{shift.dateLabel}</div>
+                  <div className="text-xs text-rose-700 bg-rose-50/50 px-2 py-1.5 rounded mt-auto border border-rose-100/50 font-medium break-words whitespace-normal">
                     {shift.missingReason}
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
+              Assenze e Annotazioni della Settimana
+            </h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
+              {weeklyLeaves.length === 0 && <span className="text-sm text-amber-600">Nessuna assenza per questa settimana</span>}
+              {weeklyLeaves.map(leave => {
+                const emp = employees.find(e => e.id === leave.employeeId);
+                const isSingleDay = leave.startDate === leave.endDate;
+                const dateStr = isSingleDay 
+                  ? formatHeaderDate(leave.startDate) 
+                  : `${formatHeaderDate(leave.startDate)} - ${formatHeaderDate(leave.endDate)}`;
+                
+                return (
+                  <div key={leave.id} className="bg-white p-3 rounded-lg shadow-sm border border-amber-100 flex flex-col min-h-[100px]">
+                    <div className="flex justify-between items-start mb-1 gap-2">
+                      <span className="font-bold text-sm text-gray-900 truncate min-w-0 flex-1" title={emp?.name || 'Annotazione Generica'}>
+                        {emp?.name || (leave.employeeId ? 'Operatore eliminato' : 'Annotazione Generica')}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                        {leave.type}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mb-2 truncate min-w-0">{dateStr}</div>
+                    {leave.notes && (
+                      <div className="text-xs text-gray-700 bg-amber-50 p-2 rounded mt-auto border border-amber-100/50 break-words whitespace-normal">
+                        {leave.notes}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -511,8 +543,8 @@ function EmployeeScheduleBlock({
 
   return (
     <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-white flex flex-col">
-      <div className="bg-[#86d97e] text-gray-900 px-4 py-2.5 flex justify-between items-center border-b border-gray-300">
-        {isEditing ? (
+      <div className={`${employee.isVirtual ? 'bg-indigo-300 text-indigo-950' : 'bg-[#86d97e] text-gray-900'} px-4 py-2.5 flex justify-between items-center border-b border-gray-300`}>
+        {isEditing && !employee.isVirtual ? (
           <input
             value={editedName}
             onChange={(e) => setEditedName(e.target.value)}
@@ -523,9 +555,9 @@ function EmployeeScheduleBlock({
           />
         ) : (
           <span 
-            className="font-bold tracking-wide uppercase text-sm cursor-pointer hover:bg-black/5 px-2 py-0.5 -ml-2 rounded transition-colors" 
-            title="Clicca per modificare"
-            onClick={() => { setIsEditing(true); setEditedName(employee.name); }}
+            className={`font-bold tracking-wide uppercase text-sm ${employee.isVirtual ? '' : 'cursor-pointer hover:bg-black/5'} px-2 py-0.5 -ml-2 rounded transition-colors`} 
+            title={employee.isVirtual ? '' : "Clicca per modificare"}
+            onClick={() => { if (!employee.isVirtual) { setIsEditing(true); setEditedName(employee.name); } }}
           >
             {employee.name}
           </span>

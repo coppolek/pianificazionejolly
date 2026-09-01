@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Employee, WorkSite, Assignment, LeaveRequest, ScheduleEntry } from '../types';
+import { Employee, WorkSite, Assignment, LeaveRequest, ScheduleEntry , AppNotification } from '../types';
 
 interface AppContextType {
   employees: Employee[];
@@ -22,6 +22,8 @@ interface AppContextType {
   addScheduleEntry: (entry: Omit<ScheduleEntry, 'id'>) => Promise<void>;
   updateScheduleEntry: (id: string, entry: Partial<ScheduleEntry>) => Promise<void>;
   deleteScheduleEntry: (id: string) => Promise<void>;
+  notifications: AppNotification[];
+  clearNotifications: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -32,6 +34,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [scheduleEntries, setScheduleEntries] = useState<ScheduleEntry[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   // Setup Firestore listeners
   useEffect(() => {
@@ -108,11 +111,39 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const addScheduleEntry = async (entry: Omit<ScheduleEntry, 'id'>) => {
     await addDoc(collection(db, 'scheduleEntries'), entry);
+    const emp = employees.find(e => e.id === entry.employeeId);
+    if (emp?.type === 'jolly') {
+      await addDoc(collection(db, 'notifications'), {
+        createdAt: new Date().toISOString(),
+        message: `È stato aggiunto un nuovo intervento per ${emp.name} in data ${entry.date}`
+      });
+    }
   };
   const updateScheduleEntry = async (id: string, updatedFields: Partial<ScheduleEntry>) => {
+    const oldEntry = scheduleEntries.find(e => e.id === id);
     await updateDoc(doc(db, 'scheduleEntries', id), updatedFields);
+    if (oldEntry) {
+      const empId = updatedFields.employeeId || oldEntry.employeeId;
+      const emp = employees.find(e => e.id === empId);
+      if (emp?.type === 'jolly') {
+        await addDoc(collection(db, 'notifications'), {
+          createdAt: new Date().toISOString(),
+          message: `È stato modificato un intervento per ${emp.name} in data ${updatedFields.date || oldEntry.date}`
+        });
+      }
+    }
   };
   const deleteScheduleEntry = async (id: string) => {
+    const entry = scheduleEntries.find(e => e.id === id);
+    if (entry) {
+      const emp = employees.find(e => e.id === entry.employeeId);
+      if (emp?.type === 'jolly') {
+        await addDoc(collection(db, 'notifications'), {
+          createdAt: new Date().toISOString(),
+          message: `È stato eliminato un intervento per ${emp.name} in data ${entry.date}`
+        });
+      }
+    }
     await deleteDoc(doc(db, 'scheduleEntries', id));
   };
 
@@ -120,7 +151,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     <AppContext.Provider value={{
       employees, workSites, assignments, leaveRequests, scheduleEntries,
       addEmployee, updateEmployee, deleteEmployee, addWorkSite, updateWorkSite, deleteWorkSite, toggleAssignment,
-      addLeaveRequest, updateLeaveRequest, deleteLeaveRequest, addScheduleEntry, updateScheduleEntry, deleteScheduleEntry
+      addLeaveRequest, updateLeaveRequest, deleteLeaveRequest, addScheduleEntry, updateScheduleEntry, deleteScheduleEntry,
+      notifications, clearNotifications: () => {}
     }}>
       {children}
     </AppContext.Provider>

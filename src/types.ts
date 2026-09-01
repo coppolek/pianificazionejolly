@@ -74,3 +74,9 @@ export interface UserRoleData {
   email: string;
   role: UserRole;
 }
+
+export interface AppNotification {
+  id: string;
+  createdAt: string;
+  message: string;
+}

@@ -3,16 +3,14 @@ import re
 with open('src/types.ts', 'r') as f:
     content = f.read()
 
-new_types = """
-export type UserRole = 'admin' | 'operator';
-
-export interface UserRoleData {
-  email: string;
-  role: UserRole;
+if "export interface AppNotification" not in content:
+    content += """
+export interface AppNotification {
+  id: string;
+  createdAt: string;
+  message: string;
 }
 """
-
-content = content + new_types
 
 with open('src/types.ts', 'w') as f:
     f.write(content)
