@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Calendar, Search, Building2, User, Clock, FileSpreadsheet } from 'lucide-react';
+import { Calendar, Search, Building2, User, Clock, FileSpreadsheet, MapPin } from 'lucide-react';
+import { getWorkSiteLocationDetails } from '../lib/cantieriMap';
 
 export default function HistoryPage() {
   const { scheduleEntries, workSites, employees } = useAppContext();
@@ -47,7 +48,7 @@ export default function HistoryPage() {
         acc[siteName] = { entries: [], totalHours: 0 };
       }
       acc[siteName].entries.push(entry);
-      acc[siteName].totalHours += entry.hours || 0;
+      acc[siteName].totalHours = Math.round(((acc[siteName].totalHours || 0) + (Number(entry.hours) || 0)) * 100) / 100;
       return acc;
     }, {} as Record<string, { entries: typeof scheduleEntries, totalHours: number }>);
 
@@ -146,14 +147,24 @@ export default function HistoryPage() {
             <p className="text-gray-500 text-sm mt-1">Non ci sono turni pianificati per i filtri selezionati.</p>
           </div>
         ) : (
-          reportData.map(([siteName, data]) => (
+          reportData.map(([siteName, data]) => {
+            const loc = getWorkSiteLocationDetails(siteName, workSites);
+            return (
             <div key={siteName} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="bg-slate-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                 <div className="flex items-center gap-3">
                   <div className="bg-indigo-100 p-2 rounded-lg">
                     <Building2 className="text-indigo-600" size={20} />
                   </div>
-                  <h3 className="text-lg font-bold text-slate-800 uppercase tracking-wide">{siteName}</h3>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 uppercase tracking-wide">{siteName}</h3>
+                    {loc.address && (
+                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 font-normal">
+                        <MapPin size={12} className="text-rose-500 shrink-0" />
+                        <span>{loc.address}{loc.city ? ` (${loc.city})` : ''}</span>
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Ore Totali</div>
@@ -199,7 +210,8 @@ export default function HistoryPage() {
                 </table>
               </div>
             </div>
-          ))
+          );
+        })
         )}
       </div>
     </div>

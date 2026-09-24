@@ -53,10 +53,26 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const unsubSchedule = onSnapshot(collection(db, 'scheduleEntries'), (snapshot) => {
       setScheduleEntries(snapshot.docs.map(doc => {
         const data = doc.data();
+        let rawHours = typeof data.hours === 'number' ? data.hours : parseFloat(data.hours);
+        if (isNaN(rawHours) || rawHours === 0) {
+          if (data.startTime && data.endTime) {
+            const startParts = data.startTime.split(':').map(Number);
+            const endParts = data.endTime.split(':').map(Number);
+            if (startParts.length === 2 && endParts.length === 2) {
+              let diff = (endParts[0] * 60 + endParts[1]) - (startParts[0] * 60 + startParts[1]);
+              if (diff < 0) diff += 24 * 60;
+              rawHours = diff / 60;
+            }
+          }
+        }
+        if (isNaN(rawHours)) rawHours = 0;
+        if (rawHours > 24) rawHours = rawHours / 60;
+        rawHours = Math.round(rawHours * 100) / 100;
+
         return { 
           id: doc.id, 
           ...data,
-          hours: data.hours > 24 ? data.hours / 60 : data.hours
+          hours: rawHours
         } as unknown as ScheduleEntry;
       }));
     });

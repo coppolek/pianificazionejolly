@@ -3,6 +3,7 @@ import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { Trash2, UserPlus, Building, Check, Edit2, Calendar, X, Search, Plus, Link } from 'lucide-react';
 import { WorkSite, Employee, WeeklyPlan } from '../types';
+import { resolveCoordinates } from '../lib/geoUtils';
 
 function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, onClose: () => void, ws: WorkSite, onUpdate: (id: string, updates: Partial<WorkSite>) => void }) {
   const { employees, assignments } = useAppContext();
@@ -408,14 +409,35 @@ function OperatoriSection() {
   const [searchTerm, setSearchTerm] = useState('');
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [province, setProvince] = useState('');
   const [type, setType] = useState<'jolly' | 'ordinario'>('jolly');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    addEmployee({ name: name.toUpperCase(), type, company: company.trim() });
+    const cleanAddress = address.trim();
+    const cleanCity = city.trim().toUpperCase();
+    const cleanProvince = province.trim().toUpperCase();
+
+    // Geocodifica automatica immediata per consentire il calcolo chilometrico
+    const coords = await resolveCoordinates(cleanAddress, cleanCity, cleanProvince);
+
+    addEmployee({ 
+      name: name.toUpperCase(), 
+      type, 
+      company: company.trim(),
+      address: cleanAddress,
+      city: cleanCity,
+      province: cleanProvince,
+      ...(coords ? { lat: coords.lat, lng: coords.lng } : {})
+    });
     setName('');
     setCompany('');
+    setAddress('');
+    setCity('');
+    setProvince('');
     setType('jolly');
   };
 
@@ -448,6 +470,31 @@ function OperatoriSection() {
                 value={company}
                 onChange={e => setCompany(e.target.value)}
               />
+
+              <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <span className="block text-xs font-semibold text-slate-700 mb-2">📍 Domicilio / Partenza (per calcolo distanze)</span>
+                <input 
+                  type="text" placeholder="Indirizzo (es. Via Roma 10)"
+                  className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 mb-2 bg-white"
+                  value={address}
+                  onChange={e => setAddress(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <input 
+                    type="text" placeholder="Comune (es. Milano)"
+                    className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    value={city}
+                    onChange={e => setCity(e.target.value)}
+                  />
+                  <input 
+                    type="text" placeholder="Prov. (es. MI)"
+                    maxLength={3}
+                    className="w-20 border border-slate-200 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white uppercase"
+                    value={province}
+                    onChange={e => setProvince(e.target.value)}
+                  />
+                </div>
+              </div>
               
               <label className="block text-xs font-medium text-slate-700 mb-1">Ruolo</label>
               <select
@@ -484,12 +531,13 @@ function OperatoriSection() {
               <tr>
                 <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Nome e Ruolo</th>
                 <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Azienda</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Domicilio / Partenza</th>
                 <th scope="col" className="px-3 py-2 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-50">
               {filteredEmployees.length === 0 && (
-                <tr><td colSpan={3} className="px-3 py-6 text-center text-xs text-slate-500">Nessun operatore trovato.</td></tr>
+                <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">Nessun operatore trovato.</td></tr>
               )}
               {filteredEmployees.map(emp => (
                 <OperatorRow 
@@ -515,18 +563,49 @@ function OperatoriSection() {
   );
 }
 
-function OperatorRow({ emp, onDelete, onUpdate, onEditAssignments }: { key?: React.Key, emp: any, onDelete: () => void, onUpdate: (updates: { name?: string, type?: 'jolly' | 'ordinario', company?: string }) => void, onEditAssignments: () => void }) {
+function OperatorRow({ emp, onDelete, onUpdate, onEditAssignments }: { key?: React.Key, emp: any, onDelete: () => void, onUpdate: (updates: { name?: string, type?: 'jolly' | 'ordinario', company?: string, address?: string, city?: string, province?: string }) => void, onEditAssignments: () => void }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(emp.name);
   const [editedCompany, setEditedCompany] = useState(emp.company || '');
+  const [editedAddress, setEditedAddress] = useState(emp.address || '');
+  const [editedCity, setEditedCity] = useState(emp.city || '');
+  const [editedProvince, setEditedProvince] = useState(emp.province || '');
   const [editedType, setEditedType] = useState<'jolly' | 'ordinario'>(emp.type || 'jolly');
 
-  const handleSave = () => {
-    if ((editedName.trim() && editedName !== emp.name) || editedType !== (emp.type || 'jolly') || editedCompany !== (emp.company || '')) {
-      onUpdate({ name: editedName.toUpperCase(), type: editedType, company: editedCompany.trim() });
+  const handleSave = async () => {
+    if (
+      (editedName.trim() && editedName !== emp.name) || 
+      editedType !== (emp.type || 'jolly') || 
+      editedCompany !== (emp.company || '') ||
+      editedAddress !== (emp.address || '') ||
+      editedCity !== (emp.city || '') ||
+      editedProvince !== (emp.province || '')
+    ) {
+      const cleanAddress = editedAddress.trim();
+      const cleanCity = editedCity.trim().toUpperCase();
+      const cleanProvince = editedProvince.trim().toUpperCase();
+
+      // Ricalcola coordinate se l'indirizzo/comune/provincia è cambiato
+      const addressChanged = cleanAddress !== (emp.address || '') || cleanCity !== (emp.city || '') || cleanProvince !== (emp.province || '');
+      const coords = addressChanged 
+        ? await resolveCoordinates(cleanAddress, cleanCity, cleanProvince) 
+        : { lat: emp.lat, lng: emp.lng };
+
+      onUpdate({ 
+        name: editedName.toUpperCase(), 
+        type: editedType, 
+        company: editedCompany.trim(),
+        address: cleanAddress,
+        city: cleanCity,
+        province: cleanProvince,
+        ...(coords && coords.lat !== undefined ? { lat: coords.lat, lng: coords.lng } : {})
+      });
     } else {
       setEditedName(emp.name);
       setEditedCompany(emp.company || '');
+      setEditedAddress(emp.address || '');
+      setEditedCity(emp.city || '');
+      setEditedProvince(emp.province || '');
       setEditedType(emp.type || 'jolly');
     }
     setIsEditing(false);
@@ -554,7 +633,7 @@ function OperatorRow({ emp, onDelete, onUpdate, onEditAssignments }: { key?: Rea
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <span className="font-medium text-xs text-slate-900 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || '');}}>
+            <span className="font-medium text-xs text-slate-900 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || ''); setEditedAddress(emp.address || ''); setEditedCity(emp.city || ''); setEditedProvince(emp.province || '');}}>
               {emp.name}
             </span>
             <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
@@ -569,46 +648,89 @@ function OperatorRow({ emp, onDelete, onUpdate, onEditAssignments }: { key?: Rea
       </td>
       <td className="px-3 py-2 whitespace-nowrap">
         {isEditing ? (
-          <div className="flex gap-2 items-center">
-            <input
-              value={editedCompany}
-              onChange={(e) => setEditedCompany(e.target.value)}
-              placeholder="Azienda"
-              className="border border-indigo-300 rounded px-2 py-1 text-sm w-full max-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-            />
-            <button onClick={handleSave} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700">
-              <Check size={16} />
-            </button>
-          </div>
+          <input
+            value={editedCompany}
+            onChange={(e) => setEditedCompany(e.target.value)}
+            placeholder="Azienda"
+            className="border border-indigo-300 rounded px-2 py-1 text-sm w-full max-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+          />
         ) : (
-          <span className="text-xs text-slate-600 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || '');}}>
+          <span className="text-xs text-slate-600 cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || ''); setEditedAddress(emp.address || ''); setEditedCity(emp.city || ''); setEditedProvince(emp.province || '');}}>
             {emp.company || <span className="text-slate-400 italic">Non specificata</span>}
           </span>
         )}
       </td>
+      <td className="px-3 py-2">
+        {isEditing ? (
+          <div className="flex flex-col gap-1 min-w-[200px]">
+            <input
+              value={editedAddress}
+              onChange={(e) => setEditedAddress(e.target.value)}
+              placeholder="Indirizzo"
+              className="border border-indigo-300 rounded px-2 py-0.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+            <div className="flex gap-1">
+              <input
+                value={editedCity}
+                onChange={(e) => setEditedCity(e.target.value)}
+                placeholder="Comune"
+                className="border border-indigo-300 rounded px-2 py-0.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              />
+              <input
+                value={editedProvince}
+                onChange={(e) => setEditedProvince(e.target.value)}
+                placeholder="Prov"
+                maxLength={3}
+                className="border border-indigo-300 rounded px-1 py-0.5 text-xs w-12 uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col text-xs cursor-pointer hover:bg-slate-100 px-2 py-1 -ml-2 rounded transition-colors" onClick={() => {setIsEditing(true); setEditedName(emp.name); setEditedType(emp.type || 'jolly'); setEditedCompany(emp.company || ''); setEditedAddress(emp.address || ''); setEditedCity(emp.city || ''); setEditedProvince(emp.province || '');}}>
+            {emp.city || emp.province || emp.address ? (
+              <>
+                <span className="font-medium text-slate-800">
+                  {emp.city ? emp.city : ''}{emp.province ? ` (${emp.province})` : ''}
+                </span>
+                {emp.address && <span className="text-[10px] text-slate-500 truncate max-w-[180px]">{emp.address}</span>}
+              </>
+            ) : (
+              <span className="text-slate-400 italic">Non specificato</span>
+            )}
+          </div>
+        )}
+      </td>
       <td className="px-3 py-2 whitespace-nowrap text-right">
-        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button 
-            onClick={onEditAssignments}
-            className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
-            title="Associa Cantieri"
-          >
-            <Link size={16} />
-          </button>
-          <button 
-            onClick={() => setIsEditing(!isEditing)}
-            className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
-            title="Modifica"
-          >
-            <Edit2 size={16} />
-          </button>
-          <button 
-            onClick={onDelete}
-            className="text-slate-400 hover:text-rose-600 p-1.5 rounded-md hover:bg-rose-50 transition-colors"
-            title="Elimina"
-          >
-            <Trash2 size={16} />
-          </button>
+        <div className="flex justify-end gap-1">
+          {isEditing ? (
+            <button onClick={handleSave} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700" title="Salva modifiche">
+              <Check size={16} />
+            </button>
+          ) : (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-end gap-1">
+              <button 
+                onClick={onEditAssignments}
+                className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+                title="Associa Cantieri"
+              >
+                <Link size={16} />
+              </button>
+              <button 
+                onClick={() => setIsEditing(!isEditing)}
+                className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+                title="Modifica"
+              >
+                <Edit2 size={16} />
+              </button>
+              <button 
+                onClick={onDelete}
+                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-md hover:bg-rose-50 transition-colors"
+                title="Elimina"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </td>
     </tr>
@@ -624,15 +746,26 @@ const WorkSiteRow: React.FC<{ ws: WorkSite, onDelete: () => void, onUpdate: (id:
   const [editedRadius, setEditedRadius] = useState(ws.radius || '');
   const [editedScanType, setEditedScanType] = useState(ws.scanType || '');
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (editedName.trim() !== '') {
+      const cleanAddress = editedAddress.trim();
+      const cleanCity = editedCity.trim().toUpperCase();
+      const cleanProvince = editedProvince.trim().toUpperCase();
+
+      // Ricalcola coordinate se l'indirizzo/comune/provincia è cambiato
+      const addressChanged = cleanAddress !== (ws.address || '') || cleanCity !== (ws.city || '') || cleanProvince !== (ws.province || '');
+      const coords = addressChanged 
+        ? await resolveCoordinates(cleanAddress, cleanCity, cleanProvince) 
+        : { lat: ws.lat, lng: ws.lng };
+
       onUpdate(ws.id, { 
         name: editedName.trim().toUpperCase(), 
-        address: editedAddress.trim(),
-        city: editedCity.trim().toUpperCase(),
-        province: editedProvince.trim().toUpperCase(),
+        address: cleanAddress,
+        city: cleanCity,
+        province: cleanProvince,
         radius: editedRadius.trim(),
-        scanType: editedScanType.trim()
+        scanType: editedScanType.trim(),
+        ...(coords && coords.lat !== undefined ? { lat: coords.lat, lng: coords.lng } : {})
       });
     } else {
       setEditedName(ws.name);
@@ -758,16 +891,25 @@ function CantieriSection() {
   const [radius, setRadius] = useState('');
   const [scanType, setScanType] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    const cleanName = name.trim().toUpperCase();
+    const cleanAddress = address.trim();
+    const cleanCity = city.trim().toUpperCase();
+    const cleanProvince = province.trim().toUpperCase();
+
+    // Geocodifica immediata per consentire il calcolo delle distanze con gli operatori
+    const coords = await resolveCoordinates(cleanAddress, cleanCity, cleanProvince);
+
     addWorkSite({ 
-      name: name.toUpperCase(), 
-      address: address.trim(),
-      city: city.trim().toUpperCase(),
-      province: province.trim().toUpperCase(),
+      name: cleanName, 
+      address: cleanAddress,
+      city: cleanCity,
+      province: cleanProvince,
       radius: radius.trim(),
-      scanType: scanType.trim()
+      scanType: scanType.trim(),
+      ...(coords ? { lat: coords.lat, lng: coords.lng } : {})
     });
     setName('');
     setAddress('');

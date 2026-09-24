@@ -2,6 +2,12 @@ export interface Employee {
   id: string;
   name: string;
   type?: 'jolly' | 'ordinario';
+  company?: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface ShiftPlan {
@@ -39,6 +45,8 @@ export interface WorkSite {
   scanType?: string;
   printTag?: string;
   weeklyPlan?: WeeklyPlan;
+  lat?: number;
+  lng?: number;
 }
 
 export interface Assignment {
@@ -48,6 +56,16 @@ export interface Assignment {
 
 export type LeaveType = 'Ferie' | 'Permesso' | 'Malattia' | 'Annotazione';
 
+export interface CoverageShift {
+  id: string;
+  workSiteName: string;
+  startTime: string;
+  endTime: string;
+  date?: string; // Facoltativo: YYYY-MM-DD specifico, altrimenti valido per tutti i giorni dell'assenza
+  daysOfWeek?: string[]; // Facoltativo: giorni specifici della settimana (es. ['monday', 'tuesday'])
+  notes?: string;
+}
+
 export interface LeaveRequest {
   id: string;
   employeeId?: string;
@@ -56,6 +74,7 @@ export interface LeaveRequest {
   endDate: string; // YYYY-MM-DD
   status?: 'pending' | 'approved' | 'rejected';
   notes?: string;
+  coverageShifts?: CoverageShift[];
 }
 
 export interface ScheduleEntry {
@@ -66,6 +85,11 @@ export interface ScheduleEntry {
   endTime: string;
   taskDescription: string;
   hours: number;
+  travelKm?: number;
+  fromLocation?: string;
+  travelTimeMinutes?: number;
+  coveredEmployeeId?: string;
+  coveredEmployeeName?: string;
 }
 
 export type UserRole = 'admin' | 'operator';
