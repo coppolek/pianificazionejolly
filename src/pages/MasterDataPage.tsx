@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { Trash2, UserPlus, Building, Check, Edit2, Calendar, X, Search, Plus, Link } from 'lucide-react';
+import { Trash2, UserPlus, Building, Check, Edit2, Calendar, X, Search, Plus, Link, Users, User, UserCheck, Filter } from 'lucide-react';
 import { WorkSite, Employee, WeeklyPlan } from '../types';
 import { resolveCoordinates } from '../lib/geoUtils';
 
 function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, onClose: () => void, ws: WorkSite, onUpdate: (id: string, updates: Partial<WorkSite>) => void }) {
   const { employees, assignments } = useAppContext();
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
+  const [operatorSearchInModal, setOperatorSearchInModal] = useState('');
   
   if (!isOpen) return null;
 
@@ -157,6 +158,52 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
             </button>
           </div>
         </div>
+        
+        {/* Barra Ricerca Operatore nel Cantiere (all'interno del piano orari) */}
+        <div className="px-6 py-2.5 bg-indigo-50/80 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2 flex-1 max-w-md">
+            <Search size={15} className="text-indigo-600 shrink-0" />
+            <input 
+              type="text"
+              placeholder="Cerca operatore nel cantiere per evidenziare i suoi turni..."
+              value={operatorSearchInModal}
+              onChange={(e) => setOperatorSearchInModal(e.target.value)}
+              className="w-full text-xs border border-indigo-200 rounded-md px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+            {operatorSearchInModal && (
+              <button 
+                onClick={() => setOperatorSearchInModal('')}
+                className="text-slate-400 hover:text-slate-600 text-xs px-1"
+                title="Azzera ricerca operatore"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {operatorSearchInModal.trim() && (() => {
+            const lowerSearch = operatorSearchInModal.trim().toLowerCase();
+            const matchedOps = employees.filter(e => e.name.toLowerCase().includes(lowerSearch));
+            const assignedDays: string[] = [];
+            (Object.keys(daysMap) as Array<keyof WeeklyPlan>).forEach(d => {
+              const shifts = plan[d]?.shifts || [];
+              const hasOp = shifts.some(s => 
+                (s.assignedOperators || []).some(id => matchedOps.some(mo => mo.id === id))
+              );
+              if (hasOp) assignedDays.push(daysMap[d]);
+            });
+
+            return (
+              <div className="text-xs font-semibold text-indigo-950 bg-white px-3 py-1 rounded-md border border-indigo-200 shadow-2xs">
+                {assignedDays.length > 0 ? (
+                  <span>Operatore presente in: <strong className="text-indigo-700">{assignedDays.join(', ')}</strong></span>
+                ) : (
+                  <span className="text-amber-800">Non assegnato ad alcuna fascia oraria</span>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
         <div className="p-6 overflow-y-auto space-y-8">
           {(Object.keys(daysMap) as Array<keyof WeeklyPlan>).map(day => {
             const shifts = plan[day]?.shifts || [];
@@ -244,17 +291,26 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
                                     <div>
                                       <div className="text-[9px] text-slate-400 uppercase font-bold mb-1 flex items-center gap-1">Da Sostituire (Assegnati al cantiere)</div>
                                       <div className="flex flex-wrap gap-1.5">
-                                        {filteredAssigned.map(emp => (
-                                          <label key={emp.id} className={`flex items-center gap-1 border px-2 py-1 rounded text-xs cursor-pointer shadow-sm transition-colors ${currentAssigned.includes(emp.id) ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
-                                            <input
-                                              type="checkbox"
-                                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                              checked={currentAssigned.includes(emp.id)}
-                                              onChange={() => toggleShiftOperator(day, shift.id, emp.id)}
-                                            />
-                                            <span className="truncate max-w-[120px] font-medium" title={emp.name}>{emp.name}</span>
-                                          </label>
-                                        ))}
+                                        {filteredAssigned.map(emp => {
+                                          const isModalSearchMatch = operatorSearchInModal.trim() && emp.name.toLowerCase().includes(operatorSearchInModal.trim().toLowerCase());
+                                          return (
+                                            <label key={emp.id} className={`flex items-center gap-1 border px-2 py-1 rounded text-xs cursor-pointer shadow-sm transition-all ${
+                                              isModalSearchMatch
+                                                ? 'bg-amber-100 border-amber-400 font-bold ring-2 ring-amber-300'
+                                                : currentAssigned.includes(emp.id)
+                                                  ? 'bg-indigo-50 border-indigo-200' 
+                                                  : 'bg-white border-slate-200 hover:bg-slate-50'
+                                            }`}>
+                                              <input
+                                                type="checkbox"
+                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                checked={currentAssigned.includes(emp.id)}
+                                                onChange={() => toggleShiftOperator(day, shift.id, emp.id)}
+                                              />
+                                              <span className="truncate max-w-[120px] font-medium" title={emp.name}>{emp.name}</span>
+                                            </label>
+                                          );
+                                        })}
                                       </div>
                                     </div>
                                   )}
@@ -263,17 +319,26 @@ function WeeklyPlanModal({ isOpen, onClose, ws, onUpdate }: { isOpen: boolean, o
                                     <div>
                                       <div className="text-[9px] text-slate-400 uppercase font-bold mb-1 flex items-center gap-1">Sostituti (Disponibili / Jolly)</div>
                                       <div className="flex flex-wrap gap-1.5">
-                                        {filteredAvailable.map(emp => (
-                                          <label key={emp.id} className={`flex items-center gap-1 border px-2 py-1 rounded text-xs cursor-pointer shadow-sm transition-colors ${currentAssigned.includes(emp.id) ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
-                                            <input
-                                              type="checkbox"
-                                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                              checked={currentAssigned.includes(emp.id)}
-                                              onChange={() => toggleShiftOperator(day, shift.id, emp.id)}
-                                            />
-                                            <span className="truncate max-w-[120px]" title={emp.name}>{emp.name}</span>
-                                          </label>
-                                        ))}
+                                        {filteredAvailable.map(emp => {
+                                          const isModalSearchMatch = operatorSearchInModal.trim() && emp.name.toLowerCase().includes(operatorSearchInModal.trim().toLowerCase());
+                                          return (
+                                            <label key={emp.id} className={`flex items-center gap-1 border px-2 py-1 rounded text-xs cursor-pointer shadow-sm transition-all ${
+                                              isModalSearchMatch
+                                                ? 'bg-amber-100 border-amber-400 font-bold ring-2 ring-amber-300'
+                                                : currentAssigned.includes(emp.id)
+                                                  ? 'bg-indigo-50 border-indigo-200' 
+                                                  : 'bg-white border-slate-200 hover:bg-slate-50'
+                                            }`}>
+                                              <input
+                                                type="checkbox"
+                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                checked={currentAssigned.includes(emp.id)}
+                                                onChange={() => toggleShiftOperator(day, shift.id, emp.id)}
+                                              />
+                                              <span className="truncate max-w-[120px]" title={emp.name}>{emp.name}</span>
+                                            </label>
+                                          );
+                                        })}
                                       </div>
                                     </div>
                                   )}
@@ -397,6 +462,157 @@ function OperatorAssignmentsModal({ isOpen, onClose, emp }: { isOpen: boolean, o
               })
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkSiteOperatorsModal({ isOpen, onClose, ws }: { isOpen: boolean, onClose: () => void, ws: WorkSite }) {
+  const { employees, assignments, toggleAssignment } = useAppContext();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'ordinario' | 'jolly'>('all');
+
+  if (!isOpen) return null;
+
+  const assignedEmployeeIds = assignments.filter(a => a.workSiteId === ws.id).map(a => a.employeeId);
+  
+  // Trova anche gli operatori assegnati nei turni del piano orari settimanale
+  const planOperatorIds = Object.values(ws.weeklyPlan || {}).flatMap(day => 
+    day.shifts?.flatMap(s => s.assignedOperators || []) || day.assignedOperators || []
+  );
+
+  const filteredEmployees = employees
+    .filter(emp => {
+      if (filterType !== 'all' && (emp.type || 'jolly') !== filterType) return false;
+      if (!searchTerm.trim()) return true;
+      const lower = searchTerm.toLowerCase();
+      return (
+        emp.name.toLowerCase().includes(lower) ||
+        (emp.city && emp.city.toLowerCase().includes(lower)) ||
+        (emp.company && emp.company.toLowerCase().includes(lower))
+      );
+    })
+    .sort((a, b) => {
+      const aAssigned = assignedEmployeeIds.includes(a.id);
+      const bAssigned = assignedEmployeeIds.includes(b.id);
+      if (aAssigned && !bAssigned) return -1;
+      if (!aAssigned && bAssigned) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-lg flex flex-col max-h-[85vh]">
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-slate-50 rounded-t-xl">
+          <div>
+            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+              <Users size={18} className="text-indigo-600" />
+              Operatori Assegnati: {ws.name}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {assignedEmployeeIds.length} {assignedEmployeeIds.length === 1 ? 'operatore associato' : 'operatori associati'} a questo cantiere
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 flex flex-col overflow-hidden min-h-[350px]">
+          {/* Ricerca e Filtro Operatori nel cantiere */}
+          <div className="flex gap-2 mb-4 shrink-0">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                type="text" 
+                placeholder="Cerca operatore per nome, comune o azienda..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as any)}
+              className="border border-slate-200 rounded-lg text-xs px-2.5 py-2 bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium"
+            >
+              <option value="all">Tutti ({employees.length})</option>
+              <option value="ordinario">Ordinari</option>
+              <option value="jolly">Jolly</option>
+            </select>
+          </div>
+
+          <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+            {filteredEmployees.length === 0 ? (
+              <div className="text-center text-xs text-slate-400 py-8">Nessun operatore trovato con questo nome.</div>
+            ) : (
+              filteredEmployees.map(emp => {
+                const isAssigned = assignedEmployeeIds.includes(emp.id);
+                const isInWeeklyPlan = planOperatorIds.includes(emp.id);
+                return (
+                  <div key={emp.id} className={`flex items-center justify-between p-2.5 rounded-lg border transition-colors ${
+                    isAssigned ? 'bg-indigo-50/70 border-indigo-200' : 'border-slate-100 hover:bg-slate-50'
+                  }`}>
+                    <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
+                      <input 
+                        type="checkbox"
+                        checked={isAssigned}
+                        onChange={() => toggleAssignment(emp.id, ws.id)}
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 shrink-0"
+                      />
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-semibold ${isAssigned ? 'text-indigo-950 font-bold' : 'text-slate-800'}`}>
+                            {emp.name}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold ${
+                            (!emp.type || emp.type === 'jolly') 
+                              ? 'bg-amber-100 text-amber-800' 
+                              : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {(!emp.type || emp.type === 'jolly') ? 'Jolly' : 'Ordinario'}
+                          </span>
+                          {isInWeeklyPlan && (
+                            <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-medium">
+                              Nel piano orari
+                            </span>
+                          )}
+                        </div>
+                        {(emp.city || emp.company) && (
+                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                            {emp.company && <span>{emp.company} • </span>}
+                            {emp.city}{emp.province ? ` (${emp.province})` : ''}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center rounded-b-xl shrink-0">
+          <span className="text-xs text-slate-500">
+            {assignedEmployeeIds.length} {assignedEmployeeIds.length === 1 ? 'operatore selezionato' : 'operatori selezionati'}
+          </span>
+          <button 
+            onClick={onClose} 
+            className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+          >
+            Fatto
+          </button>
         </div>
       </div>
     </div>
@@ -737,7 +953,17 @@ function OperatorRow({ emp, onDelete, onUpdate, onEditAssignments }: { key?: Rea
   );
 }
 
-const WorkSiteRow: React.FC<{ ws: WorkSite, onDelete: () => void, onUpdate: (id: string, updates: Partial<WorkSite>) => void, onEditPlan: () => void }> = ({ ws, onDelete, onUpdate, onEditPlan }) => {
+const WorkSiteRow: React.FC<{ 
+  ws: WorkSite, 
+  onDelete: () => void, 
+  onUpdate: (id: string, updates: Partial<WorkSite>) => void, 
+  onEditPlan: () => void,
+  onManageOperators: () => void,
+  searchTerm?: string,
+  selectedOperatorId?: string
+}> = ({ ws, onDelete, onUpdate, onEditPlan, onManageOperators, searchTerm = '', selectedOperatorId = 'all' }) => {
+  const { employees, assignments } = useAppContext();
+  const [operatorSearch, setOperatorSearch] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(ws.name);
   const [editedAddress, setEditedAddress] = useState(ws.address || '');
@@ -745,6 +971,23 @@ const WorkSiteRow: React.FC<{ ws: WorkSite, onDelete: () => void, onUpdate: (id:
   const [editedProvince, setEditedProvince] = useState(ws.province || '');
   const [editedRadius, setEditedRadius] = useState(ws.radius || '');
   const [editedScanType, setEditedScanType] = useState(ws.scanType || '');
+
+  // Operatori assegnati da assignments e da weeklyPlan
+  const assignedIds = (assignments || []).filter(a => a.workSiteId === ws.id).map(a => a.employeeId);
+  const planOpIds = (Object.values(ws.weeklyPlan || {}) as any[]).flatMap(day => 
+    day?.shifts?.flatMap((s: any) => s.assignedOperators || []) || day?.assignedOperators || []
+  );
+  const allOpIds = Array.from(new Set([...assignedIds, ...planOpIds]));
+  const allOperators = allOpIds.map(id => employees.find(e => e.id === id)).filter(Boolean) as Employee[];
+
+  // Filtra operatori del cantiere con ricerca interna
+  const filteredOperators = allOperators.filter(op => {
+    if (!operatorSearch.trim()) return true;
+    const lower = operatorSearch.toLowerCase();
+    return op.name.toLowerCase().includes(lower) ||
+      (op.city && op.city.toLowerCase().includes(lower)) ||
+      (op.company && op.company.toLowerCase().includes(lower));
+  });
 
   const handleSave = async () => {
     if (editedName.trim() !== '') {
@@ -781,109 +1024,194 @@ const WorkSiteRow: React.FC<{ ws: WorkSite, onDelete: () => void, onUpdate: (id:
   return (
     <tr className="hover:bg-slate-50 group">
       <td className="px-3 py-2">
-          {isEditing ? (
+        {isEditing ? (
+          <input
+            value={editedName}
+            onChange={(e) => setEditedName(e.target.value)}
+            className="border border-indigo-300 rounded px-2 py-1 text-sm uppercase w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+          />
+        ) : (
+          <span className="font-medium text-xs text-slate-900 block min-w-[170px]">{ws.name}</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        {isEditing ? (
+          <div className="flex flex-col gap-2">
             <input
-              value={editedName}
-              onChange={(e) => setEditedName(e.target.value)}
-              className="border border-indigo-300 rounded px-2 py-1 text-sm uppercase w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              value={editedAddress}
+              onChange={(e) => setEditedAddress(e.target.value)}
+              placeholder="Indirizzo"
+              className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
             />
-          ) : (
-            <span className="font-medium text-xs text-slate-900 block min-w-[200px]">{ws.name}</span>
-          )}
-        </td>
-        <td className="px-3 py-2">
-          {isEditing ? (
-            <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
               <input
-                value={editedAddress}
-                onChange={(e) => setEditedAddress(e.target.value)}
-                placeholder="Indirizzo"
-                className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-              />
-              <div className="flex gap-2">
-                <input
-                  value={editedCity}
-                  onChange={(e) => setEditedCity(e.target.value)}
-                  placeholder="Comune"
-                  className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                />
-                <input
-                  value={editedProvince}
-                  onChange={(e) => setEditedProvince(e.target.value)}
-                  placeholder="Provincia"
-                  className="border border-indigo-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col min-w-[200px]">
-              <span className="text-xs text-slate-800">{ws.address || '-'}</span>
-              <span className="text-[10px] text-slate-500">{(ws.city || ws.province) ? `${ws.city || ''}${ws.city && ws.province ? ' (' + ws.province + ')' : (ws.province || '')}` : '-'}</span>
-            </div>
-          )}
-        </td>
-        <td className="px-3 py-2">
-          {isEditing ? (
-            <div className="flex flex-col gap-2">
-              <input
-                value={editedScanType}
-                onChange={(e) => setEditedScanType(e.target.value)}
-                placeholder="Scansione"
+                value={editedCity}
+                onChange={(e) => setEditedCity(e.target.value)}
+                placeholder="Comune"
                 className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
               />
               <input
-                value={editedRadius}
-                onChange={(e) => setEditedRadius(e.target.value)}
-                placeholder="Raggio (m)"
-                className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                value={editedProvince}
+                onChange={(e) => setEditedProvince(e.target.value)}
+                placeholder="Provincia"
+                className="border border-indigo-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
               />
             </div>
-          ) : (
-            <div className="flex flex-col whitespace-nowrap">
-              <span className="text-xs text-slate-800">Scansione: <span className="font-medium">{ws.scanType || '-'}</span></span>
-              <span className="text-[10px] text-slate-500">Raggio: <span className="font-medium">{ws.radius ? `${ws.radius}m` : '-'}</span></span>
-            </div>
-          )}
-        </td>
-        <td className="px-3 py-2 whitespace-nowrap text-right align-top">
-          {isEditing ? (
-            <button onClick={handleSave} className="bg-indigo-600 text-white rounded p-1.5 hover:bg-indigo-700 inline-block mr-1">
-              <Check size={16} />
+          </div>
+        ) : (
+          <div className="flex flex-col min-w-[150px]">
+            <span className="text-xs text-slate-800">{ws.address || '-'}</span>
+            <span className="text-[10px] text-slate-500">{(ws.city || ws.province) ? `${ws.city || ''}${ws.city && ws.province ? ' (' + ws.province + ')' : (ws.province || '')}` : '-'}</span>
+          </div>
+        )}
+      </td>
+      
+      {/* Colonna Operatori Assegnati con ricerca operatore all'interno del cantiere */}
+      <td className="px-3 py-2 min-w-[240px] max-w-[340px]">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+              <Users size={12} className="text-indigo-600" />
+              {allOperators.length} {allOperators.length === 1 ? 'Operatore' : 'Operatori'}
+            </span>
+            <button 
+              onClick={onManageOperators}
+              className="text-[10.5px] text-indigo-600 hover:text-indigo-800 font-semibold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors flex items-center gap-1"
+              title="Associa o cerca operatori in questo cantiere"
+            >
+              + Associa
             </button>
-          ) : (
-            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button 
-                onClick={onEditPlan}
-                className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
-                title="Associazione e Piano Orari"
-              >
-                <Calendar size={16} />
-              </button>
-              <button 
-                onClick={() => setIsEditing(true)}
-                className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
-                title="Modifica"
-              >
-                <Edit2 size={16} />
-              </button>
-              <button 
-                onClick={onDelete}
-                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-md hover:bg-rose-50 transition-colors"
-                title="Elimina"
-              >
-                <Trash2 size={16} />
-              </button>
+          </div>
+
+          {/* Campo di ricerca operatore all'interno di questo specifico cantiere */}
+          {allOperators.length > 2 && (
+            <div className="relative">
+              <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input 
+                type="text"
+                placeholder="Cerca operatore nel cantiere..."
+                value={operatorSearch}
+                onChange={(e) => setOperatorSearch(e.target.value)}
+                className="w-full pl-6 pr-2 py-0.5 text-[10.5px] border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white"
+              />
+              {operatorSearch && (
+                <button 
+                  onClick={() => setOperatorSearch('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-[10px]"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           )}
-        </td>
+
+          {/* Lista chip operatori con evidenziazione */}
+          <div className="flex flex-wrap gap-1 max-h-[85px] overflow-y-auto pr-0.5">
+            {filteredOperators.length === 0 ? (
+              <span className="text-[10.5px] text-slate-400 italic">
+                {allOperators.length === 0 ? 'Nessun operatore assegnato' : 'Nessun operatore corrisponde'}
+              </span>
+            ) : (
+              filteredOperators.map(op => {
+                const isHighlighted = (searchTerm && op.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                  (selectedOperatorId !== 'all' && op.id === selectedOperatorId) ||
+                  (operatorSearch && op.name.toLowerCase().includes(operatorSearch.toLowerCase()));
+
+                return (
+                  <span 
+                    key={op.id}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${
+                      isHighlighted 
+                        ? 'bg-amber-100 text-amber-900 border border-amber-400 font-bold ring-2 ring-amber-300'
+                        : (!op.type || op.type === 'jolly')
+                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}
+                    title={`${op.name} (${(!op.type || op.type === 'jolly') ? 'Jolly' : 'Ordinario'})${op.city ? ` - ${op.city}` : ''}`}
+                  >
+                    <span className="truncate max-w-[130px]">{op.name}</span>
+                    <span className="text-[8.5px] opacity-75">
+                      {(!op.type || op.type === 'jolly') ? 'J' : 'O'}
+                    </span>
+                  </span>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </td>
+
+      <td className="px-3 py-2">
+        {isEditing ? (
+          <div className="flex flex-col gap-2">
+            <input
+              value={editedScanType}
+              onChange={(e) => setEditedScanType(e.target.value)}
+              placeholder="Scansione"
+              className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+            <input
+              value={editedRadius}
+              onChange={(e) => setEditedRadius(e.target.value)}
+              placeholder="Raggio (m)"
+              className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col whitespace-nowrap">
+            <span className="text-xs text-slate-800">Scansione: <span className="font-medium">{ws.scanType || '-'}</span></span>
+            <span className="text-[10px] text-slate-500">Raggio: <span className="font-medium">{ws.radius ? `${ws.radius}m` : '-'}</span></span>
+          </div>
+        )}
+      </td>
+      <td className="px-3 py-2 whitespace-nowrap text-right align-top">
+        {isEditing ? (
+          <button onClick={handleSave} className="bg-indigo-600 text-white rounded p-1.5 hover:bg-indigo-700 inline-block mr-1">
+            <Check size={16} />
+          </button>
+        ) : (
+          <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button 
+              onClick={onManageOperators}
+              className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+              title="Associa / Cerca Operatori per questo cantiere"
+            >
+              <Users size={16} />
+            </button>
+            <button 
+              onClick={onEditPlan}
+              className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+              title="Associazione e Piano Orari"
+            >
+              <Calendar size={16} />
+            </button>
+            <button 
+              onClick={() => setIsEditing(true)}
+              className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+              title="Modifica"
+            >
+              <Edit2 size={16} />
+            </button>
+            <button 
+              onClick={onDelete}
+              className="text-slate-400 hover:text-rose-600 p-1.5 rounded-md hover:bg-rose-50 transition-colors"
+              title="Elimina"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        )}
+      </td>
     </tr>
   );
-}
+};
 
 function CantieriSection() {
-  const { workSites, addWorkSite, deleteWorkSite, updateWorkSite } = useAppContext();
+  const { workSites, addWorkSite, deleteWorkSite, updateWorkSite, employees, assignments } = useAppContext();
   const [editingPlanWorkSiteId, setEditingPlanWorkSiteId] = useState<string | null>(null);
+  const [managingOperatorsWorkSiteId, setManagingOperatorsWorkSiteId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedOperatorFilter, setSelectedOperatorFilter] = useState<string>('all');
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
@@ -919,12 +1247,31 @@ function CantieriSection() {
     setScanType('');
   };
 
-  const filteredWorkSites = workSites.filter(ws => 
-    ws.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (ws.address && ws.address.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (ws.city && ws.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (ws.province && ws.province.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredWorkSites = workSites.filter(ws => {
+    // Calcola operatori assegnati
+    const assignedIds = (assignments || []).filter(a => a.workSiteId === ws.id).map(a => a.employeeId);
+    const planOpIds = (Object.values(ws.weeklyPlan || {}) as any[]).flatMap(day => 
+      day?.shifts?.flatMap((s: any) => s.assignedOperators || []) || day?.assignedOperators || []
+    );
+    const allOpIds = Array.from(new Set([...assignedIds, ...planOpIds]));
+    const opNames = allOpIds.map(id => employees.find(e => e.id === id)?.name || '');
+
+    // Filtro per operatore specifico selezionato nel dropdown
+    if (selectedOperatorFilter !== 'all' && !allOpIds.includes(selectedOperatorFilter)) {
+      return false;
+    }
+
+    // Ricerca testuale: cantiere, indirizzo, comune, provincia O NOME OPERATORE
+    if (!searchTerm.trim()) return true;
+    const lower = searchTerm.toLowerCase();
+    return (
+      ws.name.toLowerCase().includes(lower) ||
+      (ws.address && ws.address.toLowerCase().includes(lower)) ||
+      (ws.city && ws.city.toLowerCase().includes(lower)) ||
+      (ws.province && ws.province.toLowerCase().includes(lower)) ||
+      opNames.some(name => name.toLowerCase().includes(lower))
+    );
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -1005,39 +1352,97 @@ function CantieriSection() {
         </div>
       </div>
       <div className="lg:col-span-3">
-        <div className="mb-4">
-          <div className="relative max-w-md">
+        <div className="mb-4 flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
               type="text" 
-              placeholder="Cerca cantiere..."
+              placeholder="Cerca cantiere o cerca operatore (es. INTESA, Mario)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              className="w-full pl-10 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                title="Azzera ricerca"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          
+          {/* Dropdown Filtra per Operatore all'interno dei cantieri */}
+          <div className="relative sm:w-64">
+            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500" size={16} />
+            <select
+              value={selectedOperatorFilter}
+              onChange={(e) => setSelectedOperatorFilter(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white font-medium text-slate-800"
+            >
+              <option value="all">Tutti gli operatori</option>
+              {employees.map(emp => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} {emp.type ? `(${emp.type})` : ''}
+                </option>
+              ))}
+            </select>
+            {selectedOperatorFilter !== 'all' && (
+              <button
+                onClick={() => setSelectedOperatorFilter('all')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-indigo-600 hover:underline px-1 font-medium"
+                title="Azzera filtro operatore"
+              >
+                Reset
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Banner stato filtro operatore se attivo */}
+        {(selectedOperatorFilter !== 'all' || (searchTerm && employees.some(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())))) && (
+          <div className="mb-3 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs flex items-center justify-between text-indigo-900">
+            <span className="flex items-center gap-1.5 font-medium">
+              <Users size={14} className="text-indigo-600 shrink-0" />
+              <span>
+                Filtro operatore attivo: trovati <strong>{filteredWorkSites.length}</strong> {filteredWorkSites.length === 1 ? 'cantiere associato' : 'cantieri associati'}
+              </span>
+            </span>
+            <button
+              onClick={() => { setSelectedOperatorFilter('all'); setSearchTerm(''); }}
+              className="text-xs text-indigo-700 hover:underline font-semibold"
+            >
+              Mostra tutti i cantieri
+            </button>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-100">
             <thead className="bg-slate-50">
               <tr>
                 <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Nome Cantiere</th>
                 <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Indirizzo / Luogo</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Operatori Assegnati</th>
                 <th scope="col" className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Impostazioni App</th>
                 <th scope="col" className="px-3 py-2 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-50">
               {filteredWorkSites.length === 0 && (
-                <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">Nessun cantiere trovato.</td></tr>
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-xs text-slate-500">Nessun cantiere trovato con questi filtri.</td></tr>
               )}
               {filteredWorkSites.map(ws => (
                 <WorkSiteRow 
                   key={ws.id} 
                   ws={ws} 
+                  searchTerm={searchTerm}
+                  selectedOperatorId={selectedOperatorFilter}
                   onDelete={() => deleteWorkSite(ws.id)} 
                   onUpdate={updateWorkSite} 
                   onEditPlan={() => setEditingPlanWorkSiteId(ws.id)} 
+                  onManageOperators={() => setManagingOperatorsWorkSiteId(ws.id)}
                 />
               ))}
             </tbody>
@@ -1050,6 +1455,13 @@ function CantieriSection() {
           onClose={() => setEditingPlanWorkSiteId(null)} 
           ws={workSites.find(w => w.id === editingPlanWorkSiteId)!} 
           onUpdate={updateWorkSite} 
+        />
+      )}
+      {managingOperatorsWorkSiteId && (
+        <WorkSiteOperatorsModal
+          isOpen={true}
+          onClose={() => setManagingOperatorsWorkSiteId(null)}
+          ws={workSites.find(w => w.id === managingOperatorsWorkSiteId)!}
         />
       )}
     </div>

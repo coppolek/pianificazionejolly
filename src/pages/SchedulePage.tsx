@@ -184,7 +184,27 @@ export default function SchedulePage() {
         
         if (assigned.length === 0) {
           isMissing = true;
-          reason = 'Nessun op.';
+          // Controlla se il cantiere ha operatori assegnati in assignments
+          const genAssigned = (assignments || []).filter(a => a.workSiteId === ws.id).map(a => a.employeeId);
+          const absentFromGen = genAssigned.map(id => employees.find(e => e.id === id)).filter(em => {
+            if (!em) return false;
+            return leavesOnDate.some(l => l.employeeId === em.id);
+          });
+          if (absentFromGen.length > 0) {
+            absentOpName = absentFromGen.map(e => e!.name).join(', ');
+            absentOpId = absentFromGen[0]!.id;
+            reason = `Assente: ${absentOpName}`;
+          } else if (genAssigned.length > 0) {
+            const titolari = genAssigned.map(id => employees.find(e => e.id === id)).filter(Boolean);
+            if (titolari.length > 0) {
+              absentOpName = titolari.map(t => t!.name).join(', ');
+              reason = `Titolari cantiere: ${absentOpName}`;
+            } else {
+              reason = 'Nessun op.';
+            }
+          } else {
+            reason = 'Nessun op.';
+          }
         } else {
           const absentOperators = assigned.filter(empId => leavesOnDate.some(l => l.employeeId === empId));
           if (absentOperators.length > 0) {
@@ -1270,12 +1290,18 @@ function DayColumn({
         return Math.abs(start - sStart) <= 120 && Math.abs(end - sEnd) <= 120;
       });
 
-      const assignedOpIds = shift?.assignedOperators?.length 
-        ? shift.assignedOperators 
-        : (assignments || []).filter(a => a.workSiteId === matchedWs.id).map(a => a.employeeId);
+      // Raccogli TUTTI gli ID operatori associati al cantiere (turni del giorno, turni della settimana e assegnazioni generali)
+      const allCantiereOpIds = Array.from(new Set([
+        ...(shift?.assignedOperators || []),
+        ...(dailyPlan?.assignedOperators || []),
+        ...(assignments || []).filter(a => a.workSiteId === matchedWs.id).map(a => a.employeeId),
+        ...((Object.values(matchedWs.weeklyPlan || {}) as any[]).flatMap(dp => 
+          dp?.shifts?.flatMap((s: any) => s.assignedOperators || []) || dp?.assignedOperators || []
+        ))
+      ]));
 
-      // Trova operatore assente tra quelli assegnati a questo cantiere
-      const absentOp = assignedOpIds
+      // Trova operatore assente tra quelli associati a questo cantiere
+      const absentOp = allCantiereOpIds
         .filter(id => id !== employeeId)
         .map(id => employees.find(em => em.id === id))
         .find(em => {
@@ -1290,16 +1316,30 @@ function DayColumn({
 
       if (absentOp) return absentOp.name;
 
-      // Se questo operatore è un Jolly (o blocco coperture ordinarie) e c'è un operatore titolare assegnato
+      // Se questo operatore è un Jolly (o blocco coperture ordinarie), mostra gli operatori titolari
       if (!currentEmp?.type || currentEmp.type === 'jolly' || employeeId === 'ordinari') {
-        const otherAssigned = assignedOpIds
+        const otherAssigned = allCantiereOpIds
           .filter(id => id !== employeeId)
           .map(id => employees.find(em => em.id === id))
           .filter(Boolean);
 
-        if (otherAssigned.length === 1 && otherAssigned[0]?.name) {
-          return otherAssigned[0].name;
+        if (otherAssigned.length > 0) {
+          return otherAssigned.map(o => o!.name).join(', ');
         }
+      }
+    }
+
+    // Se non troviamo il cantiere o non ha operatori associati, controlla se c'è un operatore assente nella data
+    if (!currentEmp?.type || currentEmp.type === 'jolly' || employeeId === 'ordinari') {
+      const companyAbsents = (leaveRequests || []).filter(l => 
+        l.startDate <= day.date && 
+        l.endDate >= day.date && 
+        l.type !== 'Annotazione' && 
+        l.employeeId !== employeeId
+      ).map(l => employees.find(em => em.id === l.employeeId)).filter(Boolean);
+
+      if (companyAbsents.length === 1 && companyAbsents[0]?.name) {
+        return companyAbsents[0].name;
       }
     }
 
@@ -1454,18 +1494,27 @@ function DayColumn({
                 </div>
               )}
 
-              {/* Indicazione sempre visibile dell'operatore coperto dal Jolly */}
+              {/* Indicazione SEMPRE visibile dell'operatore che vanno a coprire i Jolly */}
               {(() => {
+                const isJollyOrVirtual = !currentEmp?.type || currentEmp.type === 'jolly' || employeeId === 'ordinari';
                 const coveredOp = getCoveredOperatorName(e);
-                if (!coveredOp) return null;
+                if (!isJollyOrVirtual && !coveredOp) return null;
                 return (
                   <div 
-                    className="mt-1.5 flex items-center gap-1.5 text-[10.5px] font-bold text-amber-950 bg-amber-100/95 border border-amber-300/90 px-2 py-1 rounded shadow-2xs"
-                    title={`Operatore sostituito/coperto: ${coveredOp}`}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      onEdit(e);
+                    }}
+                    className={`mt-1.5 flex items-center gap-1.5 text-[10.5px] px-2 py-1 rounded shadow-2xs cursor-pointer transition-colors ${
+                      coveredOp 
+                        ? 'font-bold text-amber-950 bg-amber-100/95 border border-amber-300/90 hover:bg-amber-200/90' 
+                        : 'font-semibold text-amber-900 bg-amber-50/90 border border-dashed border-amber-300 hover:bg-amber-100'
+                    }`}
+                    title={coveredOp ? `Copertura turno di: ${coveredOp} (Clicca per modificare)` : 'Clicca per specificare chi viene coperto da questo Jolly'}
                   >
-                    <UserCheck size={12} className="text-amber-700 shrink-0" />
+                    <UserCheck size={12} className="text-amber-800 shrink-0" />
                     <span className="truncate">
-                      Copre: <strong className="font-extrabold text-amber-900 uppercase">{coveredOp}</strong>
+                      Copre: <strong className="font-extrabold uppercase text-amber-950">{coveredOp || 'Da assegnare (clicca)'}</strong>
                     </span>
                   </div>
                 );
