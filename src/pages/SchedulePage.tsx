@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { ScheduleEntry, LeaveRequest, CoverageShift, WorkSite } from '../types';
-import { ChevronLeft, ChevronRight, X, Search, Building2, Calendar as CalendarIcon, FilterX, Scale, Route, Car, Info, MapPin, Clock, Plus, Trash2, Sparkles, Check, UserCheck, Edit2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Search, Building2, Calendar as CalendarIcon, FilterX, Scale, Route, Car, Info, MapPin, Clock, Plus, Trash2, Sparkles, Check, UserCheck, Edit2, Key, ShieldAlert, Bell, FileText, CheckCircle } from 'lucide-react';
 import { resolveCoordinates, calculateDrivingDistanceKm, estimateTravelMinutes, formatLocationName, calculateTripKmAndMinutes, getTripEstimateSync } from '../lib/geoUtils';
 import { getWorkSiteLocationDetails } from '../lib/cantieriMap';
 import { EditLeaveModal, DeleteLeaveConfirmModal } from '../components/EditLeaveModal';
@@ -106,6 +106,13 @@ export default function SchedulePage() {
       km: number;
       fromLocation: string;
       coveredOpName?: string;
+      knowsSite?: boolean;
+      hasKeys?: boolean;
+      hasAlarm?: boolean;
+      alarmCode?: string;
+      timeAdapted?: boolean;
+      dayAdapted?: boolean;
+      notes?: string;
     }>;
   } | null>(null);
 
@@ -326,6 +333,13 @@ export default function SchedulePage() {
       km: number;
       fromLocation: string;
       coveredOpName?: string;
+      knowsSite?: boolean;
+      hasKeys?: boolean;
+      hasAlarm?: boolean;
+      alarmCode?: string;
+      timeAdapted?: boolean;
+      dayAdapted?: boolean;
+      notes?: string;
     }> = [];
 
     try {
@@ -363,17 +377,31 @@ export default function SchedulePage() {
       let totalAssignedKm = 0;
 
       for (const shift of pendingShifts) {
-        const shiftStart = parseTime(shift.startTime);
-        const shiftEnd = parseTime(shift.endTime);
+        let assignedDate = shift.date;
+        let assignedStartTime = shift.startTime;
+        let assignedEndTime = shift.endTime;
+        let timeAdapted = false;
+        let dayAdapted = false;
+
+        let shiftStart = parseTime(assignedStartTime);
+        let shiftEnd = parseTime(assignedEndTime);
         let shiftHours = (shiftEnd - shiftStart) / 60;
         if (shiftHours < 0) shiftHours += 24;
 
-        // Cantiere target
+        // Cantiere target e relative variabili
         const targetWs = workSites.find(
           ws => ws.name.trim().toUpperCase() === shift.workSiteName.trim().toUpperCase()
         ) || workSites.find(
           ws => shift.workSiteName.toUpperCase().includes(ws.name.toUpperCase()) || ws.name.toUpperCase().includes(shift.workSiteName.toUpperCase())
         );
+
+        const knownOperators = targetWs?.knownOperatorIds || [];
+        const canVaryTime = !!targetWs?.canVaryTime;
+        const canVaryDay = !!targetWs?.canVaryDay;
+        const hasKeys = targetWs?.hasKeys;
+        const hasAlarm = targetWs?.hasAlarm;
+        const alarmCode = targetWs?.alarmCode;
+        const wsNotes = targetWs?.notes;
 
         let targetCoords: { lat: number; lng: number } | null = null;
         if (targetWs) {
@@ -383,24 +411,44 @@ export default function SchedulePage() {
           targetCoords = await resolveCoordinates(undefined, shift.workSiteName);
         }
 
-        // Filtra operatori disponibili (nessuna assenza approvata)
-        const eligibleOperators = jollyEmployees.filter(emp => {
-          const hasLeave = leaveRequests.some(l => 
-            l.employeeId === emp.id && 
-            l.startDate <= shift.date && 
-            l.endDate >= shift.date && 
-            l.status === 'approved'
-          );
-          if (hasLeave) return false;
+        // Funzione per trovare operatori idonei per una specifica data
+        const getEligibleOperatorsForDate = (evalDate: string, sStart: number, sEnd: number) => {
+          return jollyEmployees.filter(emp => {
+            const hasLeave = leaveRequests.some(l => 
+              l.employeeId === emp.id && 
+              l.startDate <= evalDate && 
+              l.endDate >= evalDate && 
+              l.status === 'approved'
+            );
+            if (hasLeave) return false;
 
-          const empDayEntries = localEntries.filter(e => e.employeeId === emp.id && e.date === shift.date);
-          const hasDirectOverlap = empDayEntries.some(e => {
-            const eStart = parseTime(e.startTime);
-            const eEnd = parseTime(e.endTime);
-            return (shiftStart < eEnd && shiftEnd > eStart);
+            const empDayEntries = localEntries.filter(e => e.employeeId === emp.id && e.date === evalDate);
+            const hasDirectOverlap = empDayEntries.some(e => {
+              const eStart = parseTime(e.startTime);
+              const eEnd = parseTime(e.endTime);
+              return (sStart < eEnd && sEnd > eStart);
+            });
+            return !hasDirectOverlap;
           });
-          return !hasDirectOverlap;
-        });
+        };
+
+        // Filtra operatori disponibili (nessuna assenza approvata e nessun overlap diretto)
+        let eligibleOperators = getEligibleOperatorsForDate(assignedDate, shiftStart, shiftEnd);
+
+        // Se non ci sono operatori disponibili e il cantiere consente di variare giorno,
+        // cerchiamo un giorno alternativo nella settimana corrente con jolly disponibili
+        if (eligibleOperators.length === 0 && canVaryDay) {
+          for (const d of weekDays) {
+            if (d.date === shift.date) continue;
+            const altEligible = getEligibleOperatorsForDate(d.date, shiftStart, shiftEnd);
+            if (altEligible.length > 0) {
+              assignedDate = d.date;
+              eligibleOperators = altEligible;
+              dayAdapted = true;
+              break;
+            }
+          }
+        }
 
         if (eligibleOperators.length === 0) continue;
 
@@ -409,15 +457,22 @@ export default function SchedulePage() {
         let bestTravelKm = 0;
         let bestFromLocation = 'Domicilio';
         let bestTravelMinutes = 0;
+        let bestShiftStart = assignedStartTime;
+        let bestShiftEnd = assignedEndTime;
+        let bestTimeAdapted = timeAdapted;
 
         for (const op of eligibleOperators) {
           const opDayEntries = localEntries
-            .filter(e => e.employeeId === op.id && e.date === shift.date)
+            .filter(e => e.employeeId === op.id && e.date === assignedDate)
             .sort((a, b) => parseTime(a.startTime) - parseTime(b.startTime));
 
           // Trova il turno precedente e successivo nello stesso giorno
-          const prevEntry = [...opDayEntries].reverse().find(e => parseTime(e.endTime) <= shiftStart);
-          const succEntry = opDayEntries.find(e => parseTime(e.startTime) >= shiftEnd);
+          let currentShiftStart = shiftStart;
+          let currentShiftEnd = shiftEnd;
+          let candidateTimeAdapted = false;
+
+          const prevEntry = [...opDayEntries].reverse().find(e => parseTime(e.endTime) <= currentShiftStart);
+          const succEntry = opDayEntries.find(e => parseTime(e.startTime) >= currentShiftEnd);
 
           let distanceKm = 0;
           let fromLoc = '';
@@ -445,9 +500,19 @@ export default function SchedulePage() {
             travelTimeMin = estimateTravelMinutes(distanceKm);
 
             // Verifica tempo di viaggio tra fine turno precedente e inizio nuovo turno
-            const availableGapMin = shiftStart - parseTime(prevEntry.endTime);
+            const availableGapMin = currentShiftStart - parseTime(prevEntry.endTime);
             if (availableGapMin < travelTimeMin) {
-              travelFeasible = false;
+              // Se c'è flessibilità di orario e il margine di scarto è recuperabile (fino a 45 min)
+              const deficit = travelTimeMin - availableGapMin;
+              if (canVaryTime && deficit <= 45) {
+                // Posticipa l'inizio del turno per rendere il tragitto fattibile
+                currentShiftStart = parseTime(prevEntry.endTime) + travelTimeMin;
+                currentShiftEnd = currentShiftStart + (shiftHours * 60);
+                candidateTimeAdapted = true;
+                travelFeasible = true;
+              } else {
+                travelFeasible = false;
+              }
             }
           } else {
             // Primo turno del giorno: parte dal domicilio/base
@@ -470,9 +535,17 @@ export default function SchedulePage() {
               toSuccKm = calculateDrivingDistanceKm(targetCoords, succCoords);
             }
             const timeToSuccMin = estimateTravelMinutes(toSuccKm);
-            const gapToSucc = parseTime(succEntry.startTime) - shiftEnd;
+            const gapToSucc = parseTime(succEntry.startTime) - currentShiftEnd;
             if (gapToSucc < timeToSuccMin) {
-              travelFeasible = false;
+              const succDeficit = timeToSuccMin - gapToSucc;
+              if (canVaryTime && succDeficit <= 30 && !candidateTimeAdapted) {
+                // Anticipa di poco il turno per permettere lo spostamento successivo
+                currentShiftStart = Math.max(0, currentShiftStart - succDeficit);
+                currentShiftEnd = currentShiftStart + (shiftHours * 60);
+                candidateTimeAdapted = true;
+              } else {
+                travelFeasible = false;
+              }
             }
           }
 
@@ -482,7 +555,8 @@ export default function SchedulePage() {
           }
 
           // ----------------------------------------------------
-          // ALGORITMO DI ASSEGNAZIONE EQUA DEL CARICO E DELLE DISTANZE
+          // ALGORITMO DI ASSEGNAZIONE EQUA & INTELLIGENTE DEL CARICO
+          // Integrazione delle variabili del cantiere (chiavi, allarmi, operatori abilitati, flessibilità)
           // ----------------------------------------------------
           let score = 1000;
 
@@ -490,8 +564,6 @@ export default function SchedulePage() {
           score -= (distanceKm * 1.5);
 
           // 2. EQUITÀ CHILOMETRICA (FONDAMENTALE):
-          // Penalizza fortemente gli operatori che hanno già percorso più km nella settimana corrente,
-          // favorendo automaticamente chi ha percorso meno chilometri per equilibrare il carico!
           const currentWeekKm = opCumulativeKm[op.id] || 0;
           score -= (currentWeekKm * 4.0);
 
@@ -503,9 +575,34 @@ export default function SchedulePage() {
           const dayHours = opDayEntries.reduce((sum, e) => sum + e.hours, 0);
           score -= (dayHours * 20.0);
 
-          // 5. BONUS CONTINUITÀ STESSO CANTIERE (evita spostamenti inutili)
+          // 5. BONUS CONTINUITÀ STESSO CANTIERE:
           if (isSameSite) {
             score += 150;
+          }
+
+          // 6. VARIABILE FONDAMENTALE: OPERATORI CHE CONOSCONO IL CANTIERE OLTRE AL TITOLARE
+          // Chi conosce già il cantiere ha massima precedenza nell'assegnazione Jolly!
+          const knowsSite = knownOperators.includes(op.id);
+          if (knowsSite) {
+            score += 350; // Grande bonus per competenza specifica sul cantiere
+          }
+
+          // 7. VARIABILE ACCESSO & CHIAVI:
+          if (hasKeys === true) {
+            score += 25; // Cantiere con chiavi disponibili, facilità d'accesso
+          } else if (hasKeys === false && knowsSite) {
+            // Senza chiavi, è ancora più importante mandare chi conosce già gli accessi e il titolare
+            score += 80;
+          }
+
+          // 8. VARIABILE ALLARME:
+          if (hasAlarm && alarmCode && knowsSite) {
+            score += 40; // Conosce il disinserimento dell'allarme
+          }
+
+          // 9. VARIABILE FLESSIBILITÀ ORARIO/GIORNO:
+          if (candidateTimeAdapted) {
+            score += 30; // Ottimizzato grazie alla tolleranza oraria concessa
           }
 
           if (score > bestScore) {
@@ -514,15 +611,28 @@ export default function SchedulePage() {
             bestTravelKm = distanceKm;
             bestFromLocation = fromLoc;
             bestTravelMinutes = travelTimeMin;
+            bestTimeAdapted = candidateTimeAdapted;
+            if (candidateTimeAdapted) {
+              const formatM = (mins: number) => {
+                const h = Math.floor(mins / 60).toString().padStart(2, '0');
+                const m = (mins % 60).toString().padStart(2, '0');
+                return `${h}:${m}`;
+              };
+              bestShiftStart = formatM(currentShiftStart);
+              bestShiftEnd = formatM(currentShiftEnd);
+            } else {
+              bestShiftStart = assignedStartTime;
+              bestShiftEnd = assignedEndTime;
+            }
           }
         }
 
         if (bestOp) {
           const newEntry: Omit<ScheduleEntry, 'id'> = {
             employeeId: bestOp.id,
-            date: shift.date,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
+            date: assignedDate,
+            startTime: bestShiftStart,
+            endTime: bestShiftEnd,
             taskDescription: shift.workSiteName,
             hours: shiftHours,
             travelKm: bestTravelKm,
@@ -542,11 +652,18 @@ export default function SchedulePage() {
           assignedLog.push({
             opName: bestOp.name,
             shiftName: shift.workSiteName,
-            date: shift.date,
-            time: `${shift.startTime} - ${shift.endTime}`,
+            date: assignedDate,
+            time: `${bestShiftStart} - ${bestShiftEnd}`,
             km: bestTravelKm,
             fromLocation: bestFromLocation,
-            coveredOpName: shift.coveredEmployeeName
+            coveredOpName: shift.coveredEmployeeName,
+            knowsSite: knownOperators.includes(bestOp.id),
+            hasKeys: hasKeys,
+            hasAlarm: hasAlarm,
+            alarmCode: alarmCode,
+            timeAdapted: bestTimeAdapted,
+            dayAdapted: dayAdapted,
+            notes: wsNotes
           });
         }
       }
@@ -995,53 +1112,130 @@ export default function SchedulePage() {
             </div>
             <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
               {shiftsToCover.length === 0 && <span className="text-sm text-rose-600">Nessun turno scoperto</span>}
-              {shiftsToCover.map(shift => (
-                <div 
-                  key={shift.id} 
-                  className="bg-white p-3 rounded-lg shadow-sm border border-rose-100 flex flex-col cursor-move hover:shadow-md transition-shadow active:cursor-grabbing"
-                  draggable
-                  onDragStart={(ev) => {
-                    const data = {
-                      type: 'NEW_SHIFT',
-                      workSiteName: shift.workSiteName,
-                      startTime: shift.startTime,
-                      endTime: shift.endTime,
-                      coveredEmployeeId: shift.coveredEmployeeId,
-                      coveredEmployeeName: shift.coveredEmployeeName
-                    };
-                    ev.dataTransfer.setData('application/json', JSON.stringify(data));
-                  }}
-                >
-                  <div className="flex justify-between items-start mb-1 gap-2">
-                    <span className="font-bold text-sm text-gray-900 truncate min-w-0 flex-1" title={shift.workSiteName}>
-                      {shift.workSiteName}
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 shrink-0">
-                      {shift.startTime} - {shift.endTime}
-                    </span>
-                  </div>
-                  <div className="text-xs font-semibold text-gray-700 mb-1 truncate min-w-0">{shift.dateLabel}</div>
-                  {(() => {
-                    const loc = getWorkSiteLocationDetails(shift.workSiteName, workSites);
-                    if (!loc.address) return null;
-                    return (
-                      <div className="text-[11px] text-gray-500 mb-1.5 truncate flex items-center gap-1" title={`Indirizzo: ${loc.fullLocation}`}>
-                        <MapPin size={11} className="shrink-0 text-rose-400" />
-                        <span className="truncate">{loc.address} {loc.city ? `(${loc.city})` : ''}</span>
-                      </div>
-                    );
-                  })()}
-                  {shift.coveredEmployeeName && (
-                    <div className="text-[11px] font-bold text-amber-950 bg-amber-100/90 px-2 py-1 rounded mb-1.5 border border-amber-300 flex items-center gap-1">
-                      <UserCheck size={12} className="text-amber-800 shrink-0" />
-                      <span className="truncate">Copre: <strong className="uppercase text-amber-900">{shift.coveredEmployeeName}</strong></span>
+              {shiftsToCover.map(shift => {
+                const targetWs = workSites.find(
+                  ws => ws.name.trim().toUpperCase() === shift.workSiteName.trim().toUpperCase()
+                ) || workSites.find(
+                  ws => shift.workSiteName.toUpperCase().includes(ws.name.toUpperCase()) || ws.name.toUpperCase().includes(shift.workSiteName.toUpperCase())
+                );
+                const knownOps = (targetWs?.knownOperatorIds || []).map(id => employees.find(e => e.id === id)?.name).filter(Boolean);
+
+                return (
+                  <div 
+                    key={shift.id} 
+                    className="bg-white p-3.5 rounded-lg shadow-sm border border-rose-100 flex flex-col cursor-move hover:shadow-md transition-shadow active:cursor-grabbing gap-2"
+                    draggable
+                    onDragStart={(ev) => {
+                      const data = {
+                        type: 'NEW_SHIFT',
+                        workSiteName: shift.workSiteName,
+                        startTime: shift.startTime,
+                        endTime: shift.endTime,
+                        coveredEmployeeId: shift.coveredEmployeeId,
+                        coveredEmployeeName: shift.coveredEmployeeName
+                      };
+                      ev.dataTransfer.setData('application/json', JSON.stringify(data));
+                    }}
+                  >
+                    <div className="flex justify-between items-start gap-2">
+                      <span className="font-bold text-sm text-gray-900 truncate min-w-0 flex-1" title={shift.workSiteName}>
+                        {shift.workSiteName}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 shrink-0">
+                        {shift.startTime} - {shift.endTime}
+                      </span>
                     </div>
-                  )}
-                  <div className="text-xs text-rose-700 bg-rose-50/50 px-2 py-1.5 rounded mt-auto border border-rose-100/50 font-medium break-words whitespace-normal">
-                    {shift.missingReason}
+
+                    <div className="text-xs font-semibold text-gray-700 truncate min-w-0">{shift.dateLabel}</div>
+
+                    {(() => {
+                      const loc = getWorkSiteLocationDetails(shift.workSiteName, workSites);
+                      if (!loc.address) return null;
+                      return (
+                        <div className="text-[11px] text-gray-500 truncate flex items-center gap-1" title={`Indirizzo: ${loc.fullLocation}`}>
+                          <MapPin size={11} className="shrink-0 text-rose-400" />
+                          <span className="truncate">{loc.address} {loc.city ? `(${loc.city})` : ''}</span>
+                        </div>
+                      );
+                    })()}
+
+                    {shift.coveredEmployeeName && (
+                      <div className="text-[11px] font-bold text-amber-950 bg-amber-100/90 px-2 py-1 rounded border border-amber-300 flex items-center gap-1">
+                        <UserCheck size={12} className="text-amber-800 shrink-0" />
+                        <span className="truncate">Titolare assente: <strong className="uppercase text-amber-900">{shift.coveredEmployeeName}</strong></span>
+                      </div>
+                    )}
+
+                    {/* Scheda Variabili Cantiere per Collocazione Jolly */}
+                    {targetWs && (
+                      <div className="bg-slate-50 border border-slate-200 rounded p-2 text-[11px] space-y-1.5 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 font-medium">
+                          {/* Chiavi */}
+                          {targetWs.hasKeys ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-800 bg-emerald-100/90 px-1.5 py-0.5 rounded border border-emerald-300 text-[10px] font-semibold" title={targetWs.keysLocation ? `Posizione: ${targetWs.keysLocation}` : 'Chiavi presenti'}>
+                              <Key size={11} className="text-emerald-700" />
+                              Chiavi: Sì {targetWs.keysLocation ? `(${targetWs.keysLocation})` : ''}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-slate-600 bg-slate-200/80 px-1.5 py-0.5 rounded border border-slate-300 text-[10px]" title="Nessuna chiave presente">
+                              <Key size={11} className="text-slate-400" />
+                              No chiavi
+                            </span>
+                          )}
+
+                          {/* Allarme */}
+                          {targetWs.hasAlarm ? (
+                            <span className="inline-flex items-center gap-1 text-rose-800 bg-rose-100/90 px-1.5 py-0.5 rounded border border-rose-300 text-[10px] font-semibold">
+                              <ShieldAlert size={11} className="text-rose-700" />
+                              Allarme {targetWs.alarmCode ? `(Cod: ${targetWs.alarmCode})` : 'attivo'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 text-[10px]">
+                              Nessun allarme
+                            </span>
+                          )}
+
+                          {/* Flessibilità */}
+                          {targetWs.canVaryTime && (
+                            <span className="inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200 text-[10px] font-medium" title="Possibilità di variare orario di intervento">
+                              <Clock size={11} className="text-indigo-600" />
+                              Orario flessibile
+                            </span>
+                          )}
+                          {targetWs.canVaryDay && (
+                            <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 text-[10px] font-medium" title="Possibilità di variare giorno nella settimana">
+                              <CalendarIcon size={11} className="text-purple-600" />
+                              Giorno flessibile
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Operatori che oltre al titolare conoscono il cantiere */}
+                        {knownOps.length > 0 && (
+                          <div className="text-[10px] text-slate-700 flex items-center gap-1 bg-white px-1.5 py-1 rounded border border-slate-200">
+                            <span className="font-semibold text-indigo-900 shrink-0">Conoscono il cantiere:</span>
+                            <span className="text-indigo-700 font-medium truncate" title={knownOps.join(', ')}>
+                              {knownOps.join(', ')}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Note Cantiere */}
+                        {targetWs.notes && (
+                          <div className="text-[10px] text-amber-900 bg-amber-50/90 p-1.5 rounded border border-amber-200 italic flex items-start gap-1">
+                            <FileText size={11} className="shrink-0 text-amber-700 mt-0.5" />
+                            <span>{targetWs.notes}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-rose-700 bg-rose-50/50 px-2 py-1.5 rounded mt-auto border border-rose-100/50 font-medium break-words whitespace-normal">
+                      {shift.missingReason}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div>
@@ -1664,6 +1858,43 @@ function DayColumn({
                 </div>
               )}
 
+              {/* Badges compatti Variabili Accesso Cantiere */}
+              {(() => {
+                const matchedWs = workSites.find(ws => 
+                  ws.name.toUpperCase() === e.taskDescription.toUpperCase() ||
+                  e.taskDescription.toUpperCase().includes(ws.name.toUpperCase())
+                );
+                if (!matchedWs) return null;
+                const hasKeys = matchedWs.hasKeys;
+                const hasAlarm = matchedWs.hasAlarm;
+                const hasNotes = !!matchedWs.notes;
+
+                if (!hasKeys && !hasAlarm && !hasNotes) return null;
+
+                return (
+                  <div className="mt-1 flex items-center gap-1 flex-wrap text-[9.5px]">
+                    {hasKeys && (
+                      <span className="inline-flex items-center gap-0.5 text-emerald-800 bg-emerald-100/90 px-1 py-0.2 rounded border border-emerald-300 font-semibold" title={matchedWs.keysLocation ? `Chiavi: ${matchedWs.keysLocation}` : 'Chiavi disponibili'}>
+                        <Key size={9} className="text-emerald-700" />
+                        Chiavi
+                      </span>
+                    )}
+                    {hasAlarm && (
+                      <span className="inline-flex items-center gap-0.5 text-rose-800 bg-rose-100/90 px-1 py-0.2 rounded border border-rose-300 font-semibold" title={matchedWs.alarmCode ? `Allarme Cod: ${matchedWs.alarmCode}` : 'Allarme presente'}>
+                        <ShieldAlert size={9} className="text-rose-700" />
+                        {matchedWs.alarmCode ? `Cod: ${matchedWs.alarmCode}` : 'Allarme'}
+                      </span>
+                    )}
+                    {hasNotes && (
+                      <span className="inline-flex items-center gap-0.5 text-amber-800 bg-amber-100/90 px-1 py-0.2 rounded border border-amber-300" title={matchedWs.notes}>
+                        <FileText size={9} className="text-amber-700" />
+                        Note
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Indicazione SEMPRE visibile dell'operatore che vanno a coprire i Jolly */}
               {(() => {
                 const isJollyOrVirtual = !currentEmp?.type || currentEmp.type === 'jolly' || employeeId === 'ordinari';
@@ -2118,11 +2349,88 @@ function AddScheduleModal({
             </div>
             {(() => {
               const loc = getWorkSiteLocationDetails(formData.taskDescription, workSites);
-              if (!loc.address) return null;
+              const matchedWs = workSites.find(ws => 
+                ws.name.toUpperCase() === formData.taskDescription.trim().toUpperCase() ||
+                formData.taskDescription.toUpperCase().includes(ws.name.toUpperCase()) ||
+                ws.name.toUpperCase().includes(formData.taskDescription.toUpperCase())
+              );
+              if (!matchedWs && !loc.address) return null;
+
+              const knownOps = (matchedWs?.knownOperatorIds || []).map(id => employees.find(e => e.id === id)?.name).filter(Boolean);
+              const isSelectedOpFamiliar = matchedWs?.knownOperatorIds?.includes(formData.employeeId);
+
               return (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-2.5 py-1.5 rounded border border-slate-200">
-                  <MapPin size={13} className="text-rose-500 shrink-0" />
-                  <span>Via / Indirizzo: <strong className="text-slate-800">{loc.address}</strong> {loc.city ? `(${loc.city})` : ''}</span>
+                <div className="mt-2 space-y-1.5">
+                  {loc.address && (
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-2.5 py-1.5 rounded border border-slate-200">
+                      <MapPin size={13} className="text-rose-500 shrink-0" />
+                      <span>Via / Indirizzo: <strong className="text-slate-800">{loc.address}</strong> {loc.city ? `(${loc.city})` : ''}</span>
+                    </div>
+                  )}
+
+                  {matchedWs && (
+                    <div className="bg-amber-50/60 border border-amber-200/80 rounded-lg p-2.5 text-xs space-y-2">
+                      <div className="flex items-center justify-between font-semibold text-amber-950 text-[11px]">
+                        <span>Variabili Scheda Cantiere (per Jolly):</span>
+                        {isSelectedOpFamiliar ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-bold border border-emerald-300">
+                            <CheckCircle size={11} className="text-emerald-700" /> L'operatore selezionato conosce il cantiere
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            Non registrato tra chi conosce il cantiere
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        {matchedWs.hasKeys ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 font-semibold" title={matchedWs.keysLocation}>
+                            <Key size={11} /> Chiavi: Sì {matchedWs.keysLocation ? `(${matchedWs.keysLocation})` : ''}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-300">
+                            <Key size={11} /> No chiavi
+                          </span>
+                        )}
+
+                        {matchedWs.hasAlarm ? (
+                          <span className="inline-flex items-center gap-1 text-rose-800 bg-rose-100 px-2 py-0.5 rounded border border-rose-300 font-semibold">
+                            <ShieldAlert size={11} /> Allarme {matchedWs.alarmCode ? `(Cod: ${matchedWs.alarmCode})` : 'attivo'}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            Nessun allarme
+                          </span>
+                        )}
+
+                        {matchedWs.canVaryTime && (
+                          <span className="inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 font-medium">
+                            <Clock size={11} /> Orario flessibile
+                          </span>
+                        )}
+                        {matchedWs.canVaryDay && (
+                          <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 font-medium">
+                            <CalendarIcon size={11} /> Giorno flessibile
+                          </span>
+                        )}
+                      </div>
+
+                      {knownOps.length > 0 && (
+                        <div className="text-[11px] text-slate-700 bg-white p-1.5 rounded border border-slate-200 flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-slate-900 shrink-0">Operatori che conoscono il cantiere:</span>
+                          <span className="text-indigo-700 font-medium">{knownOps.join(', ')}</span>
+                        </div>
+                      )}
+
+                      {matchedWs.notes && (
+                        <div className="text-[11px] text-amber-900 bg-white p-1.5 rounded border border-amber-200 italic flex items-start gap-1.5">
+                          <FileText size={12} className="text-amber-700 shrink-0 mt-0.5" />
+                          <span>Note: {matchedWs.notes}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -2452,6 +2760,13 @@ function AutoScheduleReportModal({
       km: number;
       fromLocation: string;
       coveredOpName?: string;
+      knowsSite?: boolean;
+      hasKeys?: boolean;
+      hasAlarm?: boolean;
+      alarmCode?: string;
+      timeAdapted?: boolean;
+      dayAdapted?: boolean;
+      notes?: string;
     }>;
   };
   onClose: () => void;
@@ -2466,7 +2781,7 @@ function AutoScheduleReportModal({
             </div>
             <div>
               <h3 className="font-bold text-base tracking-wide">Pianificazione Equa Completata</h3>
-              <p className="text-xs text-emerald-100">Riepilogo degli spostamenti e delle assegnazioni generate</p>
+              <p className="text-xs text-emerald-100">Riepilogo delle assegnazioni con integrazione delle variabili di cantiere</p>
             </div>
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
@@ -2490,27 +2805,77 @@ function AutoScheduleReportModal({
             <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2.5">
               Dettaglio Assegnazioni per Percorso & Operatore
             </h4>
-            <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+            <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
               {report.details.map((d, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-slate-50/70 text-xs">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-bold text-gray-900">{d.opName}</span>
-                    <span className="text-gray-600 font-medium">{d.shiftName} ({d.time})</span>
-                    {d.coveredOpName && (
-                      <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded w-fit">
-                        Sostituisce: {d.coveredOpName}
+                <div key={i} className="flex flex-col p-3 border border-gray-200 rounded-lg bg-slate-50/70 text-xs gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-gray-900 text-sm">{d.opName}</span>
+                      {d.knowsSite && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
+                          <CheckCircle size={10} className="text-emerald-700" />
+                          Conosce il cantiere
+                        </span>
+                      )}
+                      {d.coveredOpName && (
+                        <span className="text-[10px] font-semibold text-amber-800 bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-300">
+                          Sostituisce: {d.coveredOpName}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right flex items-center gap-1.5">
+                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                        🚗 ~{d.km} km
                       </span>
-                    )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-gray-600">
+                    <span className="font-medium text-gray-800">{d.shiftName} ({d.time})</span>
                     <span className="text-[11px] text-gray-400">Data: {d.date}</span>
                   </div>
-                  <div className="text-right flex flex-col items-end">
-                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                      🚗 ~{d.km} km
-                    </span>
-                    <span className="text-[10px] text-gray-500 mt-1">
+
+                  {/* Variabili e flags del cantiere applicati */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-200/60">
+                    {d.hasKeys ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        <Key size={10} /> Chiavi presenti
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                        <Key size={10} /> No chiavi
+                      </span>
+                    )}
+
+                    {d.hasAlarm && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                        <ShieldAlert size={10} /> Allarme {d.alarmCode ? `(Cod: ${d.alarmCode})` : 'attivo'}
+                      </span>
+                    )}
+
+                    {d.timeAdapted && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                        <Clock size={10} /> Orario adattato per flessibilità
+                      </span>
+                    )}
+
+                    {d.dayAdapted && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                        <CalendarIcon size={10} /> Giorno variato per flessibilità
+                      </span>
+                    )}
+
+                    <span className="text-[10px] text-gray-500 ml-auto">
                       Partenza: {d.fromLocation}
                     </span>
                   </div>
+
+                  {d.notes && (
+                    <div className="text-[10px] text-slate-500 italic bg-white p-1 rounded border border-slate-200 flex items-center gap-1">
+                      <FileText size={10} className="shrink-0 text-slate-400" />
+                      <span>Note cantiere: {d.notes}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

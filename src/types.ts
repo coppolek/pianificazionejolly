@@ -47,6 +47,17 @@ export interface WorkSite {
   weeklyPlan?: WeeklyPlan;
   lat?: number;
   lng?: number;
+
+  // Variabili operative per collocazione cantiere nel piano dei Jolly
+  hasKeys?: boolean; // Se ci sono le chiavi per accedere al cantiere
+  keysLocation?: string; // Dove si trovano le chiavi o note chiavi
+  hasAlarm?: boolean; // Se è presente impianto di allarme
+  alarmCode?: string; // Codice allarme e/o istruzioni di disattivazione
+  notes?: string; // Note operative / istruzioni per il cantiere
+  knownOperatorIds?: string[]; // Operatori che oltre al titolare conoscono il cantiere
+  canVaryTime?: boolean; // Se c'è la possibilità di variare l'orario
+  canVaryDay?: boolean; // Se c'è la possibilità di variare il giorno
+  flexibilityNotes?: string; // Note relative alla flessibilità di giorno o orario
 }
 
 export interface Assignment {

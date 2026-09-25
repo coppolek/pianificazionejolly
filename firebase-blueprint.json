@@ -1,0 +1,111 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "An operator or employee in the system",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["jolly", "ordinario"] },
+        "company": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "province": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" }
+      },
+      "required": ["name"]
+    },
+    "WorkSite": {
+      "title": "WorkSite",
+      "description": "A work site / cantiere with operational variables for Jolly planning",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "province": { "type": "string" },
+        "radius": { "type": "string" },
+        "scanType": { "type": "string" },
+        "printTag": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "hasKeys": { "type": "boolean", "description": "Indicates if keys are available for access" },
+        "keysLocation": { "type": "string", "description": "Location or details regarding keys" },
+        "hasAlarm": { "type": "boolean", "description": "Indicates if an alarm system is present" },
+        "alarmCode": { "type": "string", "description": "Alarm disarm code and instructions" },
+        "notes": { "type": "string", "description": "General notes and operational instructions for site access" },
+        "knownOperatorIds": { "type": "array", "description": "IDs of operators who know the site besides the owner" },
+        "canVaryTime": { "type": "boolean", "description": "Flexibility to vary shift time" },
+        "canVaryDay": { "type": "boolean", "description": "Flexibility to vary shift day" },
+        "flexibilityNotes": { "type": "string", "description": "Notes on time or day flexibility" }
+      },
+      "required": ["name"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Assignment link between employee and work site",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "workSiteId": { "type": "string" }
+      },
+      "required": ["employeeId", "workSiteId"]
+    },
+    "LeaveRequest": {
+      "title": "LeaveRequest",
+      "description": "Absence, vacation, or medical leave request for an employee",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "type": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["type", "startDate", "endDate"]
+    },
+    "ScheduleEntry": {
+      "title": "ScheduleEntry",
+      "description": "A scheduled shift or intervention for an operator in the Jolly plan",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "date": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "taskDescription": { "type": "string" },
+        "hours": { "type": "number" },
+        "travelKm": { "type": "number" },
+        "fromLocation": { "type": "string" },
+        "travelTimeMinutes": { "type": "number" },
+        "coveredEmployeeId": { "type": "string" },
+        "coveredEmployeeName": { "type": "string" }
+      },
+      "required": ["employeeId", "date", "startTime", "endTime", "taskDescription", "hours"]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Operators directory"
+    },
+    "/workSites/{workSiteId}": {
+      "schema": "WorkSite",
+      "description": "Work sites directory with key/alarm/know-how/flexibility variables"
+    },
+    "/assignments/{assignmentId}": {
+      "schema": "Assignment",
+      "description": "Operator assignments to work sites"
+    },
+    "/leaveRequests/{leaveRequestId}": {
+      "schema": "LeaveRequest",
+      "description": "Absences and leaves"
+    },
+    "/scheduleEntries/{scheduleEntryId}": {
+      "schema": "ScheduleEntry",
+      "description": "Shift schedule and intervention assignments"
+    }
+  }
+}
