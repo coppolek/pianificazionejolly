@@ -57,7 +57,7 @@ fi
 echo -e "${YELLOW}[5/5] Verifica stato del server (Health Check)...${NC}"
 sleep 2
 
-HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/health || echo "error")
+HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3321/health || echo "error")
 
 if [ "$HEALTH_CHECK" == "200" ]; then
     echo -e "${GREEN}======================================================${NC}"

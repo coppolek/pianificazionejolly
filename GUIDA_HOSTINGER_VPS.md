@@ -25,7 +25,7 @@ Questa guida ti spiega passo dopo passo come installare, avviare e mantenere l'a
 
 4. **Configurazione Nginx & SSL (`nginx-hostinger.conf`)**:
    - Compressione Gzip attiva per JS, CSS, JSON e SVG.
-   - Reverse proxy sicuro verso la porta 3000 con supporto WebSocket.
+   - Reverse proxy sicuro verso la porta 3321 con supporto WebSocket.
    - Rate limiting (protezione anti-DDoS e brute force).
    - Pronto per HTTPS gratuito con Let's Encrypt (`certbot`).
 
@@ -81,7 +81,7 @@ pm2 save
 ### 5. Verifica che sia attiva
 ```bash
 pm2 status
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:3321/health
 ```
 
 ---
@@ -139,7 +139,7 @@ ufw allow 80/tcp    # HTTP
 ufw allow 443/tcp   # HTTPS
 ufw enable
 ```
-*(Nota: la porta interna 3000 non deve essere esposta all'esterno, poiché Nginx agisce da reverse proxy).*
+*(Nota: la porta interna 3321 non deve essere esposta all'esterno, poiché Nginx agisce da reverse proxy).*
 
 ---
 
@@ -174,5 +174,5 @@ Lo script:
   ```
 - **Stato del server:**
   ```bash
-  curl http://127.0.0.1:3000/health
+  curl http://127.0.0.1:3321/health
   ```

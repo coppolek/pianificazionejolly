@@ -12,12 +12,12 @@ module.exports = {
       restart_delay: 2000,
       env: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3321,
         HOST: '0.0.0.0',
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3321,
         HOST: '0.0.0.0',
       },
       // Configurazione log

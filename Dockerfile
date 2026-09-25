@@ -23,7 +23,7 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3321
 ENV HOST=0.0.0.0
 
 # Installa wget per healthcheck
@@ -43,10 +43,10 @@ RUN mkdir -p logs && chown -R node:node /app
 
 USER node
 
-EXPOSE 3000
+EXPOSE 3321
 
 # Controllo dello stato del container
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3321/health || exit 1
 
 CMD ["node", "server.js"]
