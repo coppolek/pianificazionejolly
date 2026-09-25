@@ -3,9 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { ScheduleEntry, LeaveRequest, CoverageShift, WorkSite } from '../types';
-import { ChevronLeft, ChevronRight, X, Search, Building2, Calendar as CalendarIcon, FilterX, Scale, Route, Car, Info, MapPin, Clock, Plus, Trash2, Sparkles, Check, UserCheck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Search, Building2, Calendar as CalendarIcon, FilterX, Scale, Route, Car, Info, MapPin, Clock, Plus, Trash2, Sparkles, Check, UserCheck, Edit2 } from 'lucide-react';
 import { resolveCoordinates, calculateDrivingDistanceKm, estimateTravelMinutes, formatLocationName, calculateTripKmAndMinutes, getTripEstimateSync } from '../lib/geoUtils';
 import { getWorkSiteLocationDetails } from '../lib/cantieriMap';
+import { EditLeaveModal, DeleteLeaveConfirmModal } from '../components/EditLeaveModal';
 
 const getWeekDays = (offsetWeeks: number = 0) => {
   const today = new Date();
@@ -33,8 +34,10 @@ const parseTime = (timeStr: string) => {
 
 export default function SchedulePage() {
   const { isAdmin } = useAuth();
-  const { employees, scheduleEntries, leaveRequests, deleteScheduleEntry, updateScheduleEntry, addScheduleEntry, updateEmployee, workSites, updateLeaveRequest, addLeaveRequest, assignments } = useAppContext();
+  const { employees, scheduleEntries, leaveRequests, deleteScheduleEntry, updateScheduleEntry, addScheduleEntry, updateEmployee, workSites, updateLeaveRequest, addLeaveRequest, deleteLeaveRequest, assignments } = useAppContext();
   const [selectedLeaveForCoverage, setSelectedLeaveForCoverage] = useState<LeaveRequest | null>(null);
+  const [editingLeave, setEditingLeave] = useState<LeaveRequest | 'new' | null>(null);
+  const [deleteConfirmLeave, setDeleteConfirmLeave] = useState<LeaveRequest | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [filterDate, setFilterDate] = useState('');
   const [filterWorkSite, setFilterWorkSite] = useState('all');
@@ -693,6 +696,7 @@ export default function SchedulePage() {
           onSave={async (shifts) => {
             if (selectedLeaveForCoverage.id) {
               await updateLeaveRequest(selectedLeaveForCoverage.id, { coverageShifts: shifts });
+              toast.success('Coperture cantieri aggiornate con successo!');
             } else {
               await addLeaveRequest({
                 employeeId: selectedLeaveForCoverage.employeeId,
@@ -702,7 +706,52 @@ export default function SchedulePage() {
                 status: 'approved',
                 coverageShifts: shifts
               });
+              toast.success('Coperture cantieri salvate con successo!');
             }
+          }}
+        />
+      )}
+
+      {editingLeave && (
+        <EditLeaveModal
+          isOpen={!!editingLeave}
+          leave={editingLeave}
+          defaultDates={{
+            startDate: weekDays[0]?.date || new Date().toISOString().split('T')[0],
+            endDate: weekDays[weekDays.length - 1]?.date || new Date().toISOString().split('T')[0]
+          }}
+          employees={employees}
+          workSites={workSites}
+          onClose={() => setEditingLeave(null)}
+          onSave={async (data, id) => {
+            if (id) {
+              await updateLeaveRequest(id, data);
+              toast.success('Assenza modificata con successo!');
+            } else {
+              await addLeaveRequest(data);
+              toast.success('Assenza registrata con successo!');
+            }
+          }}
+          onDelete={(leaveToDel) => {
+            setEditingLeave(null);
+            setDeleteConfirmLeave(leaveToDel);
+          }}
+          onManageCoverage={(leaveForCov) => {
+            setEditingLeave(null);
+            setSelectedLeaveForCoverage(leaveForCov);
+          }}
+        />
+      )}
+
+      {deleteConfirmLeave && (
+        <DeleteLeaveConfirmModal
+          isOpen={!!deleteConfirmLeave}
+          leave={deleteConfirmLeave}
+          employees={employees}
+          onClose={() => setDeleteConfirmLeave(null)}
+          onConfirm={async (leaveToDel) => {
+            await deleteLeaveRequest(leaveToDel.id);
+            toast.success('Assenza eliminata con successo!');
           }}
         />
       )}
@@ -855,6 +904,8 @@ export default function SchedulePage() {
                 });
               }
             }}
+            onEditLeave={(leave) => setEditingLeave(leave)}
+            onDeleteLeave={(leave) => setDeleteConfirmLeave(leave)}
           />
         ))}
 
@@ -994,12 +1045,39 @@ export default function SchedulePage() {
             </div>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
-              Assenze e Annotazioni della Settimana
-            </h3>
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <span className="w-2 h-6 bg-amber-400 rounded-sm inline-block"></span>
+                Assenze e Annotazioni della Settimana
+                {weeklyLeaves.length > 0 && (
+                  <span className="text-xs bg-amber-200/80 text-amber-950 font-bold px-2 py-0.5 rounded-full ml-1">
+                    {weeklyLeaves.length}
+                  </span>
+                )}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingLeave('new')}
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                title="Aggiungi una nuova assenza o annotazione"
+              >
+                <Plus size={14} />
+                Nuova Assenza
+              </button>
+            </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 h-full content-start">
-              {weeklyLeaves.length === 0 && <span className="text-sm text-amber-600">Nessuna assenza per questa settimana</span>}
+              {weeklyLeaves.length === 0 && (
+                <div className="col-span-full text-center py-6 text-amber-700 bg-white/60 rounded-xl border border-dashed border-amber-300 p-4">
+                  <p className="text-sm font-medium">Nessuna assenza registrata per questa settimana.</p>
+                  <button
+                    type="button"
+                    onClick={() => setEditingLeave('new')}
+                    className="mt-2 text-xs font-bold text-amber-800 hover:text-amber-900 underline inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus size={13} /> Registra nuova assenza o annotazione
+                  </button>
+                </div>
+              )}
               {weeklyLeaves.map(leave => {
                 const emp = employees.find(e => e.id === leave.employeeId);
                 const isSingleDay = leave.startDate === leave.endDate;
@@ -1011,13 +1089,9 @@ export default function SchedulePage() {
                 return (
                   <div 
                     key={leave.id} 
-                    onClick={() => {
-                      if (leave.employeeId) {
-                        setSelectedLeaveForCoverage(leave);
-                      }
-                    }}
+                    onClick={() => setEditingLeave(leave)}
                     className="bg-white p-3.5 rounded-xl shadow-xs border border-amber-200/90 hover:border-amber-400 flex flex-col min-h-[110px] cursor-pointer hover:shadow-md transition-all group relative"
-                    title="Clicca sull'operatore per assegnare i cantieri e le fasce orarie da coprire"
+                    title="Clicca per modificare o gestire l'assenza"
                     draggable
                     onDragStart={(ev) => {
                       const data = {
@@ -1041,9 +1115,39 @@ export default function SchedulePage() {
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
-                        {leave.type}
-                      </span>
+                      
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={`text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded border ${
+                          leave.type === 'Ferie' ? 'bg-sky-100 text-sky-800 border-sky-200' :
+                          leave.type === 'Permesso' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                          leave.type === 'Malattia' ? 'bg-rose-100 text-rose-800 border-rose-200' :
+                          'bg-purple-100 text-purple-800 border-purple-200'
+                        }`}>
+                          {leave.type}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingLeave(leave);
+                          }}
+                          className="p-1 rounded-md text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors cursor-pointer"
+                          title="Modifica assenza"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmLeave(leave);
+                          }}
+                          className="p-1 rounded-md text-gray-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-colors cursor-pointer"
+                          title="Elimina assenza"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="text-xs text-gray-600 mb-2 truncate font-medium flex items-center gap-1.5">
@@ -1055,13 +1159,20 @@ export default function SchedulePage() {
                     {leave.employeeId && (
                       <div className="mt-auto pt-2 border-t border-amber-100/70">
                         {hasCoverage ? (
-                          <div className="space-y-1 bg-amber-50/80 p-2 rounded-lg border border-amber-200/60">
+                          <div 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLeaveForCoverage(leave);
+                            }}
+                            className="space-y-1 bg-amber-50/80 hover:bg-amber-100/90 p-2 rounded-lg border border-amber-200/60 transition-colors cursor-pointer"
+                            title="Clicca per modificare cantieri e turni coperti"
+                          >
                             <div className="flex items-center justify-between text-[11px] font-bold text-amber-950">
                               <span className="flex items-center gap-1">
                                 <Building2 size={12} className="text-amber-700 shrink-0" />
                                 {leave.coverageShifts!.length} {leave.coverageShifts!.length === 1 ? 'cantiere da coprire' : 'cantieri da coprire'}
                               </span>
-                              <span className="text-[10px] text-indigo-700 font-semibold group-hover:underline">Modifica ➔</span>
+                              <span className="text-[10px] text-indigo-700 font-semibold group-hover:underline">Modifica turni ➔</span>
                             </div>
                             <div className="space-y-0.5 pt-0.5">
                               {leave.coverageShifts!.slice(0, 2).map((cs: CoverageShift, idx: number) => (
@@ -1078,7 +1189,14 @@ export default function SchedulePage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-between bg-amber-50 hover:bg-amber-100/80 p-2 rounded-lg border border-dashed border-amber-300 text-amber-900 text-xs font-semibold transition-colors">
+                          <div 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLeaveForCoverage(leave);
+                            }}
+                            className="flex items-center justify-between bg-amber-50 hover:bg-amber-100/80 p-2 rounded-lg border border-dashed border-amber-300 text-amber-900 text-xs font-semibold transition-colors cursor-pointer"
+                            title="Clicca per assegnare i cantieri da coprire per questa assenza"
+                          >
                             <span className="flex items-center gap-1.5">
                               <Plus size={13} className="text-amber-600" />
                               Assegna cantieri e orari da coprire
@@ -1094,6 +1212,34 @@ export default function SchedulePage() {
                         {leave.notes}
                       </div>
                     )}
+
+                    <div className="mt-2 pt-1.5 border-t border-amber-100/60 flex items-center justify-between text-[10.5px]">
+                      <span className="text-gray-400 group-hover:text-amber-700 transition-colors">
+                        Clicca per dettagli e opzioni
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingLeave(leave);
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-0.5 hover:underline"
+                        >
+                          <Edit2 size={11} /> Modifica
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmLeave(leave);
+                          }}
+                          className="text-rose-600 hover:text-rose-800 font-semibold flex items-center gap-0.5 hover:underline"
+                        >
+                          <Trash2 size={11} /> Elimina
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -1107,9 +1253,9 @@ export default function SchedulePage() {
 }
 
 function EmployeeScheduleBlock({ 
-  isAdmin, mobileDayIndex, employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew, onAssignCoverage 
+  isAdmin, mobileDayIndex, employee, weekDays, entries, onDelete, onUpdate, onAdd, onEdit, onDropEntry, onDropNew, onAssignCoverage, onEditLeave, onDeleteLeave 
 }: { isAdmin?: boolean; mobileDayIndex: number; 
-  key?: React.Key, employee: any, weekDays: any[], entries: ScheduleEntry[], onDelete: (id: string) => void, onUpdate: (id: string, name: string) => void, onAdd: (date: string) => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void, onDropNew: (shiftData: any, date: string, employeeId: string) => void, onAssignCoverage?: (leave: any) => void
+  key?: React.Key, employee: any, weekDays: any[], entries: ScheduleEntry[], onDelete: (id: string) => void, onUpdate: (id: string, name: string) => void, onAdd: (date: string) => void, onEdit: (entry: ScheduleEntry) => void, onDropEntry: (entryId: string, date: string, employeeId: string) => void, onDropNew: (shiftData: any, date: string, employeeId: string) => void, onAssignCoverage?: (leave: any) => void, onEditLeave?: (leave: any) => void, onDeleteLeave?: (leave: any) => void
 }) {
   const { workSites, leaveRequests } = useAppContext();
   const [isEditing, setIsEditing] = useState(false);
@@ -1172,17 +1318,41 @@ function EmployeeScheduleBlock({
                 {employee.city}
               </span>
             )}
-            {activeLeave && onAssignCoverage && (
-              <button
-                type="button"
-                onClick={() => onAssignCoverage(activeLeave)}
-                className="text-[11px] font-semibold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer shadow-2xs ml-1"
-                title={`Assenza attiva (${activeLeave.type}): Clicca per assegnare i cantieri e le fasce orarie da coprire`}
-              >
-                <CalendarIcon size={11} className="text-amber-700" />
-                <span>Assenza: {activeLeave.type}</span>
-                <span className="text-[9.5px] bg-amber-600 text-white px-1.5 py-0.2 rounded-full font-bold">Coperture ➔</span>
-              </button>
+            {activeLeave && (
+              <div className="flex items-center gap-1 bg-amber-100/90 border border-amber-300 rounded-full px-2 py-0.5 ml-1 shadow-2xs">
+                {onAssignCoverage && (
+                  <button
+                    type="button"
+                    onClick={() => onAssignCoverage(activeLeave)}
+                    className="text-[11px] font-semibold text-amber-950 hover:text-amber-800 flex items-center gap-1 transition-colors cursor-pointer"
+                    title={`Assenza attiva (${activeLeave.type}): Clicca per assegnare i cantieri e le fasce orarie da coprire`}
+                  >
+                    <CalendarIcon size={11} className="text-amber-700" />
+                    <span>Assenza: {activeLeave.type}</span>
+                    <span className="text-[9.5px] bg-amber-600 text-white px-1.5 py-0.2 rounded-full font-bold ml-0.5">Coperture ➔</span>
+                  </button>
+                )}
+                {onEditLeave && (
+                  <button
+                    type="button"
+                    onClick={() => onEditLeave(activeLeave)}
+                    className="text-amber-900 hover:text-indigo-700 p-0.5 rounded hover:bg-amber-200 transition-colors ml-0.5 cursor-pointer"
+                    title="Modifica assenza operatore"
+                  >
+                    <Edit2 size={12} />
+                  </button>
+                )}
+                {onDeleteLeave && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteLeave(activeLeave)}
+                    className="text-amber-900 hover:text-rose-700 p-0.5 rounded hover:bg-rose-100 transition-colors cursor-pointer"
+                    title="Elimina assenza operatore"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
             )}
             {!employee.isVirtual && !activeLeave && onAssignCoverage && (
               <button
